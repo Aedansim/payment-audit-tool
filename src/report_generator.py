@@ -1,0 +1,480 @@
+from pathlib import Path
+from datetime import datetime
+import numpy as np
+import pandas as pd
+from docx import Document
+from docx.shared import Inches, Pt, RGBColor, Cm
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.section import WD_ORIENT
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
+
+AMOUNT_COL = 'Payment Voucher Amount (SGD, Excluding GST)'
+
+# Colour palette (RGB tuples)
+NAVY  = RGBColor(0x1F, 0x38, 0x64)
+BLUE  = RGBColor(0x2E, 0x75, 0xB6)
+GREY  = RGBColor(0x60, 0x60, 0x60)
+WHITE = RGBColor(0xFF, 0xFF, 0xFF)
+RED   = RGBColor(0xC0, 0x00, 0x00)
+GREEN = RGBColor(0x70, 0xAD, 0x47)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _heading(doc, text, level=1):
+    p = doc.add_heading(text, level=level)
+    p.runs[0].font.color.rgb = NAVY
+    return p
+
+
+def _body(doc, text, bold=False, italic=False, size=10):
+    p = doc.add_paragraph()
+    run = p.add_run(text)
+    run.font.size = Pt(size)
+    run.bold = bold
+    run.italic = italic
+    run.font.color.rgb = GREY
+    return p
+
+
+def _bullet(doc, text, size=10):
+    p = doc.add_paragraph(style='List Bullet')
+    run = p.add_run(text)
+    run.font.size = Pt(size)
+    run.font.color.rgb = GREY
+    return p
+
+
+def _coloured_para(doc, label, value, colour=NAVY, size=11):
+    p = doc.add_paragraph()
+    r1 = p.add_run(label + ": ")
+    r1.bold = True
+    r1.font.size = Pt(size)
+    r1.font.color.rgb = NAVY
+    r2 = p.add_run(str(value))
+    r2.font.size = Pt(size)
+    r2.font.color.rgb = colour
+    return p
+
+
+def _shade_cell(cell, hex_color):
+    tc = cell._tc
+    tcPr = tc.get_or_add_tcPr()
+    shd = OxmlElement('w:shd')
+    shd.set(qn('w:val'), 'clear')
+    shd.set(qn('w:color'), 'auto')
+    shd.set(qn('w:fill'), hex_color)
+    tcPr.append(shd)
+
+
+def _set_landscape(section):
+    section.orientation = WD_ORIENT.LANDSCAPE
+    w, h = section.page_height, section.page_width
+    section.page_width = w
+    section.page_height = h
+    section.left_margin  = Cm(1.5)
+    section.right_margin = Cm(1.5)
+    section.top_margin   = Cm(1.5)
+    section.bottom_margin = Cm(1.5)
+
+
+# ---------------------------------------------------------------------------
+# Page 1 — Executive Summary
+# ---------------------------------------------------------------------------
+
+def _page1(doc, df, selected, benford_stats):
+    _heading(doc, "Executive Summary", level=1)
+
+    # ---- Dataset overview ----
+    _heading(doc, "Dataset Overview", level=2)
+
+    total_txns  = len(df)
+    total_amt   = df[AMOUNT_COL].sum()
+    date_min    = df['Invoice Date'].min()
+    date_max    = df['Invoice Date'].max()
+    n_vendors   = df['Vendor ID'].nunique()
+    n_indiv     = int(df.get('is_individual_payee', pd.Series(0)).sum())
+    n_company   = total_txns - n_indiv
+    n_recurring = int(df.get('is_recurring_payment', pd.Series(0)).sum())
+
+    period = (
+        f"{date_min.strftime('%d %B %Y')} to {date_max.strftime('%d %B %Y')}"
+        if pd.notna(date_min) and pd.notna(date_max) else "N/A"
+    )
+
+    stats = [
+        ("Analysis period",           period),
+        ("Total transactions",         f"{total_txns:,}"),
+        ("Total payments (SGD)",       f"{total_amt:,.2f}"),
+        ("Unique vendors",             f"{n_vendors:,}"),
+        ("Payments to individuals",    f"{n_indiv:,} ({n_indiv/total_txns*100:.1f}%)"),
+        ("Payments to companies",      f"{n_company:,} ({n_company/total_txns*100:.1f}%)"),
+        ("Recurring payments identified", f"{n_recurring:,} (excluded from Benford's analysis)"),
+    ]
+
+    tbl = doc.add_table(rows=len(stats), cols=2)
+    tbl.style = 'Table Grid'
+    for i, (label, value) in enumerate(stats):
+        tbl.rows[i].cells[0].text = label
+        tbl.rows[i].cells[1].text = value
+        tbl.rows[i].cells[0].paragraphs[0].runs[0].bold = True
+        for cell in tbl.rows[i].cells:
+            cell.paragraphs[0].runs[0].font.size = Pt(10)
+            if i % 2 == 0:
+                _shade_cell(cell, "F2F6FC")
+
+    tbl.columns[0].width = Inches(2.5)
+    tbl.columns[1].width = Inches(3.5)
+
+    doc.add_paragraph()
+
+    # ---- Summary of findings ----
+    _heading(doc, "Summary of Findings", level=2)
+
+    n_benford = int(df.get('benford_flag', pd.Series(0)).sum())
+    n_if_high = int((df.get('if_score', pd.Series(0)) > 0.65).sum())
+    n_lof_high = int((df.get('lof_score', pd.Series(0)) > 0.65).sum())
+    n_z_high  = int((df.get('zscore_score', pd.Series(0)) > 0.65).sum())
+    n_rule    = int((df.get('rule_flags_score', pd.Series(0)) > 0).sum())
+
+    score_min = selected['risk_score'].min() if 'risk_score' in selected.columns else 0
+    score_max = selected['risk_score'].max() if 'risk_score' in selected.columns else 0
+
+    findings = [
+        ("Benford's Law deviations flagged",  f"{n_benford:,} transactions"),
+        ("Isolation Forest anomalies (score > 0.65)", f"{n_if_high:,} transactions"),
+        ("Local outlier anomalies (score > 0.65)",    f"{n_lof_high:,} transactions"),
+        ("Statistical z-score outliers",      f"{n_z_high:,} transactions"),
+        ("Rule-based flags triggered",        f"{n_rule:,} transactions"),
+        ("Final samples selected",            f"{len(selected)} transactions"),
+        ("Risk score range (selected)",       f"{score_min:.3f} – {score_max:.3f}"),
+    ]
+
+    for label, value in findings:
+        p = doc.add_paragraph(style='List Bullet')
+        r1 = p.add_run(f"{label}: ")
+        r1.bold = True
+        r1.font.size = Pt(10)
+        r2 = p.add_run(value)
+        r2.font.size = Pt(10)
+
+    doc.add_paragraph()
+    _body(doc,
+          "The 25 transactions selected represent those with the highest composite risk scores "
+          "across all analytical methods. Each selected transaction has a documented reason "
+          "for selection (see the 'Selected Samples' tab in the accompanying Excel workbook).",
+          size=10)
+
+
+# ---------------------------------------------------------------------------
+# Page 2 — Methodology
+# ---------------------------------------------------------------------------
+
+def _page2(doc):
+    _heading(doc, "Methodology — How the Tool Works", level=1)
+
+    _body(doc,
+          "This tool uses a combination of established statistical tests and machine learning "
+          "algorithms to identify payment transactions that are unusual and therefore warrant "
+          "further review. Each method is described below in plain terms.",
+          size=10)
+    doc.add_paragraph()
+
+    # Benford's Law
+    _heading(doc, "1. Benford's Law Analysis", level=2)
+    _body(doc,
+          "In any large collection of naturally occurring financial amounts — such as supplier "
+          "invoices or expense claims — approximately 30% of amounts start with the digit 1, "
+          "17% start with 2, 12% start with 3, and so on, declining to just 5% for the digit 9. "
+          "This pattern, known as Benford's Law, holds because it reflects how numbers grow "
+          "proportionally in the real world.",
+          size=10)
+    _body(doc,
+          "When a dataset deviates significantly from this expected pattern, it may indicate that "
+          "amounts were manually entered, rounded, or constructed — rather than arising naturally "
+          "from business transactions. The tool measures this deviation using the Mean Absolute "
+          "Deviation (MAD) and a chi-square statistical test.",
+          size=10)
+    _body(doc,
+          "Important caveat: Fixed recurring payments (e.g. monthly retainers, annual licence fees) "
+          "naturally repeat the same amounts and will always deviate from Benford's distribution "
+          "without being suspicious. These payments are automatically excluded from the Benford "
+          "analysis and are identified separately.",
+          italic=True, size=10)
+    doc.add_paragraph()
+
+    # Isolation Forest
+    _heading(doc, "2. Isolation Forest", level=2)
+    _body(doc,
+          "Isolation Forest works by repeatedly splitting the payment data using random rules — "
+          "for example, 'is the amount greater than $5,000?' or 'was this processed in fewer than "
+          "2 days?' — until each transaction is isolated on its own. Transactions that are "
+          "genuinely unusual are easier to isolate because they are different from the rest in "
+          "many ways at once; they require fewer splits to separate out.",
+          size=10)
+    _body(doc,
+          "The model examines all engineered features of each payment simultaneously — including "
+          "the amount relative to the vendor's usual payments, the processing time, whether it "
+          "was dated on a non-working day, and whether the payee is an individual or a company. "
+          "Payments that are hardest to group with similar transactions receive the highest "
+          "anomaly scores.",
+          size=10)
+    doc.add_paragraph()
+
+    # LOF
+    _heading(doc, "3. Local Outlier Factor (LOF)", level=2)
+    _body(doc,
+          "The Local Outlier Factor identifies payments that are unusual compared to their "
+          "closest neighbours in the dataset — the most similar transactions based on amount, "
+          "vendor, and timing. A payment may look ordinary in the overall dataset but be "
+          "completely out of place among transactions from the same vendor.",
+          size=10)
+    _body(doc,
+          "For example: a $50,000 payment to a vendor whose typical invoices are around $2,000 "
+          "would score very highly, even if $50,000 is not an unusual amount across the whole "
+          "dataset. This context-sensitivity makes LOF particularly effective for catching "
+          "inflated invoices or payments to unusual recipients.",
+          size=10)
+    doc.add_paragraph()
+
+    # Z-score
+    _heading(doc, "4. Statistical Z-Score Analysis", level=2)
+    _body(doc,
+          "For each Cost Centre and each Vendor, the tool calculates the average payment amount "
+          "and how much payments typically vary from that average (standard deviation). Any "
+          "payment that falls more than 2 standard deviations above its group average is "
+          "flagged — a threshold that captures the top 2.5% of a normal distribution.",
+          size=10)
+    _body(doc,
+          "This is the most direct method for identifying unusually large payments within a "
+          "specific context. It is transparent and easy to explain to stakeholders, and is "
+          "supported by standard statistical practice.",
+          size=10)
+    doc.add_paragraph()
+
+    # Rule-based flags
+    _heading(doc, "5. Rule-Based Flags", level=2)
+    _body(doc,
+          "In addition to the statistical and machine learning methods, the tool applies a set "
+          "of specific rules derived from established audit and forensic accounting practice:",
+          size=10)
+    rules = [
+        "Round number amounts (divisible by 100, 500, or 1,000) — fraudulent amounts are commonly "
+        "chosen as round numbers rather than arising from genuine invoices.",
+        "Transactions dated on weekends or Singapore public holidays — payments authorised "
+        "outside business hours may bypass normal review controls.",
+        "Month-end transactions (last 3 days of the month) — may indicate rushed processing "
+        "to meet budget targets or period-end cut-off manipulation.",
+        "Amounts just below a common approval threshold (e.g. $9,800 when the limit is $10,000) "
+        "— a recognised technique to avoid triggering higher approval requirements.",
+        "Payments to individuals (NRIC/FIN payees) — carry higher inherent risk than payments "
+        "to registered companies, as they bypass standard vendor registration processes.",
+        "Repeated identical amounts to the same vendor outside a regular schedule — may indicate "
+        "split or duplicated payments.",
+        "Unusually short or long processing time (Invoice Date to Voucher Accounting Date) — "
+        "very fast processing may indicate bypassed controls; very long delays may suggest backdating.",
+    ]
+    for rule in rules:
+        _bullet(doc, rule, size=10)
+
+    doc.add_paragraph()
+    _body(doc,
+          "Each flag is used as a contributing signal — not a standalone conclusion. A transaction "
+          "is only selected if multiple signals point to it, or if one signal is extremely strong. "
+          "Benford's Law in particular is treated as a weak signal: a transaction will not be "
+          "selected based on Benford deviation alone.",
+          italic=True, size=10)
+
+
+# ---------------------------------------------------------------------------
+# Page 3 — Feature Reference Table (landscape)
+# ---------------------------------------------------------------------------
+
+FEATURE_TABLE_DATA = [
+    (
+        "Amount vs. vendor average",
+        "How much the payment amount differs from what this vendor is typically paid",
+        "Z-score > 2.0",
+        "Unusually large payments to a vendor may indicate over-billing or fictitious invoices",
+        "The ±2 standard deviation (2-sigma) rule covers ~95% of normally distributed values. "
+        "Widely referenced in AICPA and IIA audit guidance and GAAS analytical procedures.",
+    ),
+    (
+        "Amount vs. cost centre average",
+        "How much the payment amount differs from the typical amounts processed in that cost centre",
+        "Z-score > 2.0",
+        "Helps detect amounts that are out of place for the department, suggesting possible miscoding or inflated claims",
+        "Same statistical basis as above (2-sigma rule). Applying it at cost centre level is consistent "
+        "with GAAS group-level analytical procedure recommendations.",
+    ),
+    (
+        "Round number",
+        "Whether the payment amount ends in 00, 000, or 0,000",
+        "Exactly divisible by 100",
+        "Genuine invoice amounts rarely end in round numbers; manually chosen or fictitious amounts often do",
+        "Heuristic supported by forensic accounting literature. Nigrini (2012) and the ACFE Fraud "
+        "Examiners Manual identify 'round number bias' as a recognised indicator of constructed amounts.",
+    ),
+    (
+        "Non-working day",
+        "Whether the invoice is dated on a Saturday, Sunday, or Singapore public holiday",
+        "Sat, Sun, or SG public holiday (holidays library)",
+        "Payments authorised outside business hours may bypass the normal multi-person review and approval process",
+        "Binary rule. Supported by the COSO Internal Control Framework and IIA Standard 2120, which "
+        "require scrutiny of transactions occurring outside normal operating hours.",
+    ),
+    (
+        "Month-end",
+        "Whether the invoice is dated in the last 3 calendar days of the month",
+        "Last 3 calendar days of month",
+        "May indicate rushed processing to meet budget targets or period-end financial reporting cut-offs",
+        "Recognised audit heuristic (ACFE and IIA guidance). The last-3-days window is a commonly "
+        "applied cut-off in expenditure analytics.",
+    ),
+    (
+        "Near approval threshold",
+        "Whether the amount falls within 5% below a common approval limit",
+        "Within 5% below SGD 1K / 5K / 10K / 50K / 100K",
+        "A well-documented technique ('structuring') to avoid triggering higher-level approval requirements",
+        "Known as structuring or threshold avoidance in forensic accounting. Referenced in the ACFE "
+        "Fraud Examiners Manual. The 5% margin is a standard audit convention.",
+    ),
+    (
+        "Individual payee",
+        "Whether the Vendor ID matches the Singapore NRIC/FIN format (one letter, 7 digits, one letter)",
+        "Regex: ^[A-Z][0-9]{7}[A-Z]$",
+        "Payments to individuals carry higher inherent risk; they bypass standard vendor vetting and procurement controls",
+        "Binary classification based on the Singapore NRIC/FIN ID format. IRAS and MAS regulatory "
+        "guidance distinguishes individual from corporate payees.",
+    ),
+    (
+        "Processing time",
+        "Number of calendar days between Invoice Date and Voucher Accounting Date",
+        "Outside 5th–95th percentile of dataset",
+        "Very fast processing may indicate bypassed controls; unusually long delays may indicate backdating",
+        "Percentile-based bounds are a standard non-parametric outlier method. The 5th–95th range "
+        "(90% central interval) is analogous to a 90% confidence interval, consistent with GAAS "
+        "analytical procedure timing analysis.",
+    ),
+    (
+        "Description length",
+        "Character length of the Voucher Line Description field",
+        "Absolute z-score > 2.5",
+        "Very short descriptions may indicate incomplete entries; very long ones may indicate unusual or fabricated narrative",
+        "Z-score method applied to text length. A 2.5-sigma threshold (stricter than 2.0 for amounts) "
+        "accounts for higher natural variability in text. Z-score thresholds of 2.0–3.0 are standard "
+        "in audit data analytics.",
+    ),
+    (
+        "Irregular repeated amount",
+        "Same vendor paid the same amount more than twice, with no regular monthly/quarterly/annual schedule",
+        "> 2 occurrences with no detected recurring cycle",
+        "May indicate duplicated or split payments that were structured to avoid detection",
+        "Heuristic aligned with ACFE guidance on duplicate payment detection. The recurrence-cycle "
+        "exclusion ensures legitimate fixed payments (rent, retainers) are not falsely flagged.",
+    ),
+    (
+        "Benford's Law first digit",
+        "Whether the payment amount's first digit deviates significantly from Benford's expected frequency",
+        "First digit among the top-3 most deviant digits; non-recurring payments only",
+        "Systematic deviation may indicate manually constructed or manipulated amounts",
+        "Based on Newcomb (1881) and Benford (1938). MAD thresholds from Nigrini (2012), the "
+        "leading academic reference for forensic application of Benford's Law, recognised by the AICPA.",
+    ),
+]
+
+
+def _page3(doc):
+    section = doc.add_section()
+    _set_landscape(section)
+
+    _heading(doc, "Feature Reference Table", level=1)
+    _body(doc,
+          "The table below lists each analytical feature used by the tool, the threshold that "
+          "determines whether a transaction is flagged, the audit rationale, and the statistical "
+          "or professional basis for the threshold.",
+          size=9)
+    doc.add_paragraph()
+
+    headers = [
+        "Feature",
+        "What It Measures",
+        "Threshold for Flagging",
+        "Why It Matters",
+        "Basis & Statistical Support",
+    ]
+    col_widths = [Inches(1.6), Inches(2.0), Inches(1.8), Inches(2.2), Inches(3.2)]
+
+    tbl = doc.add_table(rows=1 + len(FEATURE_TABLE_DATA), cols=5)
+    tbl.style = 'Table Grid'
+
+    # Header row
+    hdr = tbl.rows[0]
+    for i, (header, width) in enumerate(zip(headers, col_widths)):
+        cell = hdr.cells[i]
+        cell.text = header
+        cell.paragraphs[0].runs[0].bold = True
+        cell.paragraphs[0].runs[0].font.size = Pt(8)
+        cell.paragraphs[0].runs[0].font.color.rgb = WHITE
+        _shade_cell(cell, "1F3864")
+        cell.width = width
+
+    # Data rows
+    for row_idx, row_data in enumerate(FEATURE_TABLE_DATA, start=1):
+        row = tbl.rows[row_idx]
+        shade = "F2F6FC" if row_idx % 2 == 0 else "FFFFFF"
+        for col_idx, (value, width) in enumerate(zip(row_data, col_widths)):
+            cell = row.cells[col_idx]
+            cell.text = value
+            p = cell.paragraphs[0]
+            p.runs[0].font.size = Pt(7.5)
+            _shade_cell(cell, shade)
+            cell.width = width
+
+    doc.add_paragraph()
+    _body(doc,
+          "References: Nigrini, M.J. (2012). Benford's Law: Applications for Forensic Accounting, "
+          "Auditing, and Fraud Detection. ACFE Fraud Examiners Manual (current edition). "
+          "AICPA Audit and Accounting Guide: Analytical Procedures. IIA Standards 2120 (Risk Management). "
+          "COSO Internal Control — Integrated Framework.",
+          italic=True, size=7.5)
+
+
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
+
+def export_word_report(df, selected, benford_stats, output_path):
+    doc = Document()
+
+    # Default section margins (portrait, A4)
+    section0 = doc.sections[0]
+    section0.page_width  = Cm(21.0)
+    section0.page_height = Cm(29.7)
+    section0.left_margin   = Cm(2.5)
+    section0.right_margin  = Cm(2.5)
+    section0.top_margin    = Cm(2.5)
+    section0.bottom_margin = Cm(2.5)
+
+    # Default paragraph font
+    style = doc.styles['Normal']
+    style.font.size = Pt(10)
+    style.font.name = 'Calibri'
+
+    # Page 1
+    _page1(doc, df, selected, benford_stats)
+    doc.add_page_break()
+
+    # Page 2
+    _page2(doc)
+    # No explicit page break before page 3 — the section break acts as one
+
+    # Page 3 (landscape section)
+    _page3(doc)
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    doc.save(output_path)
+    print(f"  Word report saved: {output_path}")
