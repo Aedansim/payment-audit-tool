@@ -1,5 +1,12 @@
+import io
 from pathlib import Path
 from datetime import datetime
+
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
+
 import numpy as np
 import pandas as pd
 from docx import Document
@@ -10,6 +17,7 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 AMOUNT_COL = 'Payment Voucher Amount (SGD, Excluding GST)'
+BENFORD_EXPECTED = {d: np.log10(1 + 1 / d) for d in range(1, 10)}
 
 # Colour palette (RGB tuples)
 NAVY  = RGBColor(0x1F, 0x38, 0x64)
@@ -19,9 +27,18 @@ WHITE = RGBColor(0xFF, 0xFF, 0xFF)
 RED   = RGBColor(0xC0, 0x00, 0x00)
 GREEN = RGBColor(0x70, 0xAD, 0x47)
 
+# Hex colours for matplotlib
+_HEX = {
+    'navy':   '#1F3864',
+    'blue':   '#2E75B6',
+    'orange': '#ED7D31',
+    'red':    '#C00000',
+    'green':  '#70AD47',
+}
+
 
 # ---------------------------------------------------------------------------
-# Helpers
+# docx helpers
 # ---------------------------------------------------------------------------
 
 def _heading(doc, text, level=1):
@@ -70,6 +87,16 @@ def _shade_cell(cell, hex_color):
     tcPr.append(shd)
 
 
+def _remove_table_borders(tbl):
+    tbl_pr = tbl._tbl.get_or_add_tblPr()
+    tbl_borders = OxmlElement('w:tblBorders')
+    for border_name in ('top', 'left', 'bottom', 'right', 'insideH', 'insideV'):
+        border = OxmlElement(f'w:{border_name}')
+        border.set(qn('w:val'), 'none')
+        tbl_borders.append(border)
+    tbl_pr.append(tbl_borders)
+
+
 def _set_landscape(section):
     section.orientation = WD_ORIENT.LANDSCAPE
     w, h = section.page_height, section.page_width
@@ -79,6 +106,165 @@ def _set_landscape(section):
     section.right_margin = Cm(1.5)
     section.top_margin   = Cm(1.5)
     section.bottom_margin = Cm(1.5)
+
+
+def _insert_image(doc, img_buf, width_inches, centre=False):
+    p = doc.add_paragraph()
+    if centre:
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p.add_run()
+    run.add_picture(img_buf, width=Inches(width_inches))
+    return p
+
+
+# ---------------------------------------------------------------------------
+# Matplotlib chart builders  (each returns a BytesIO PNG)
+# ---------------------------------------------------------------------------
+
+def _to_image(fig):
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+    buf.seek(0)
+    plt.close(fig)
+    return buf
+
+
+def _chart_benford(benford_stats):
+    digits   = list(range(1, 10))
+    obs_pct  = [benford_stats['observed_pct'].get(d, 0) * 100 for d in digits]
+    exp_pct  = [BENFORD_EXPECTED[d] * 100 for d in digits]
+    deviant  = benford_stats.get('deviant_digits', set())
+    colors   = [_HEX['red'] if d in deviant else _HEX['blue'] for d in digits]
+
+    fig, ax = plt.subplots(figsize=(5.5, 4.0))
+    ax.bar(digits, obs_pct, color=colors, alpha=0.85, label='Observed')
+    ax.plot(digits, exp_pct, 'o--', color=_HEX['orange'], linewidth=2,
+            markersize=5, label="Benford's Expected")
+    ax.set_xticks(digits)
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f'{x:.0f}%'))
+    ax.set_ylabel('Frequency (%)')
+    mad        = benford_stats.get('mad', 0)
+    conformity = benford_stats.get('conformity', '')
+    ax.set_xlabel(f'First Digit  |  MAD: {mad:.4f}  |  Verdict: {conformity}', fontsize=8)
+    ax.set_title("Benford's Law — First Digit Distribution",
+                 fontsize=11, fontweight='bold', color=_HEX['navy'])
+    ax.legend(fontsize=8)
+    ax.grid(axis='y', alpha=0.3)
+    fig.tight_layout()
+    return _to_image(fig)
+
+
+def _chart_risk_distribution(df, cutoff_score):
+    scores = df['risk_score'].dropna()
+    fig, ax = plt.subplots(figsize=(5.5, 4.0))
+    ax.hist(scores, bins=50, color=_HEX['blue'], alpha=0.75, edgecolor='white')
+    ax.axvline(cutoff_score, color=_HEX['red'], linestyle='--', linewidth=2,
+               label=f'Selection threshold ({cutoff_score:.3f})')
+    ax.set_xlabel('Composite Risk Score')
+    ax.set_ylabel('Number of Transactions')
+    ax.set_title('Risk Score Distribution',
+                 fontsize=11, fontweight='bold', color=_HEX['navy'])
+    ax.legend(fontsize=8)
+    ax.grid(axis='y', alpha=0.3)
+    fig.tight_layout()
+    return _to_image(fig)
+
+
+def _chart_amount_distribution(df):
+    amounts = df[AMOUNT_COL].dropna().clip(lower=0.01)
+    fig, ax = plt.subplots(figsize=(11.0, 3.2))
+    ax.hist(np.log10(amounts), bins=60, color=_HEX['navy'], alpha=0.80, edgecolor='white')
+    tick_vals   = [0, 1, 2, 3, 4, 5, 6]
+    tick_labels = ['1', '10', '100', '1K', '10K', '100K', '1M']
+    ax.set_xticks(tick_vals)
+    ax.set_xticklabels(tick_labels)
+    ax.set_xlabel('Amount (SGD)')
+    ax.set_ylabel('Number of Transactions')
+    ax.set_title('Payment Amount Distribution (log scale)',
+                 fontsize=11, fontweight='bold', color=_HEX['navy'])
+    ax.grid(axis='y', alpha=0.3)
+    fig.tight_layout()
+    return _to_image(fig)
+
+
+def _chart_timeline(df):
+    df2 = df.copy()
+    df2['Month'] = df2['Invoice Date'].dt.to_period('M')
+    monthly = (
+        df2.groupby('Month')[AMOUNT_COL]
+        .agg(Total='sum', Count='count')
+        .reset_index()
+    )
+    monthly['Month_str'] = monthly['Month'].astype(str)
+
+    fig, ax1 = plt.subplots(figsize=(11.0, 3.2))
+    x = range(len(monthly))
+    ax1.bar(list(x), monthly['Total'], color=_HEX['blue'], alpha=0.80,
+            label='Total Amount (SGD)')
+    ax1.set_ylabel('Total Amount (SGD)', color=_HEX['blue'], fontsize=9)
+    ax1.tick_params(axis='y', labelcolor=_HEX['blue'])
+    ax1.yaxis.set_major_formatter(
+        mticker.FuncFormatter(lambda v, _: f'{v:,.0f}'))
+
+    ax2 = ax1.twinx()
+    ax2.plot(list(x), monthly['Count'], 'o-', color=_HEX['orange'],
+             linewidth=2, markersize=4, label='Transaction Count')
+    ax2.set_ylabel('Transaction Count', color=_HEX['orange'], fontsize=9)
+    ax2.tick_params(axis='y', labelcolor=_HEX['orange'])
+
+    ax1.set_xticks(list(x))
+    ax1.set_xticklabels(monthly['Month_str'], rotation=45, ha='right', fontsize=7)
+    ax1.set_title('Monthly Payment Timeline',
+                  fontsize=11, fontweight='bold', color=_HEX['navy'])
+
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines1 + lines2, labels1 + labels2, fontsize=8, loc='upper left')
+    ax1.grid(axis='y', alpha=0.3)
+    fig.tight_layout()
+    return _to_image(fig)
+
+
+def _chart_top_vendors(df):
+    top_count = (
+        df.groupby('Vendor Name')[AMOUNT_COL]
+        .agg(Count='count', Total='sum')
+        .nlargest(10, 'Count')
+        .reset_index()
+    )
+    top_amt = (
+        df.groupby('Vendor Name')[AMOUNT_COL]
+        .agg(Count='count', Total='sum')
+        .nlargest(10, 'Total')
+        .reset_index()
+    )
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.0, 4.2))
+
+    y1 = range(len(top_count))
+    ax1.barh(list(y1), top_count['Count'], color=_HEX['blue'], alpha=0.85)
+    ax1.set_yticks(list(y1))
+    ax1.set_yticklabels(top_count['Vendor Name'], fontsize=7)
+    ax1.invert_yaxis()
+    ax1.set_xlabel('Transaction Count')
+    ax1.set_title('Top 10 Vendors by Transaction Count',
+                  fontsize=10, fontweight='bold', color=_HEX['navy'])
+    ax1.grid(axis='x', alpha=0.3)
+
+    y2 = range(len(top_amt))
+    ax2.barh(list(y2), top_amt['Total'], color=_HEX['navy'], alpha=0.85)
+    ax2.set_yticks(list(y2))
+    ax2.set_yticklabels(top_amt['Vendor Name'], fontsize=7)
+    ax2.invert_yaxis()
+    ax2.set_xlabel('Total Amount (SGD)')
+    ax2.set_title('Top 10 Vendors by Total Amount',
+                  fontsize=10, fontweight='bold', color=_HEX['navy'])
+    ax2.xaxis.set_major_formatter(
+        mticker.FuncFormatter(lambda v, _: f'{v:,.0f}'))
+    ax2.grid(axis='x', alpha=0.3)
+
+    fig.tight_layout()
+    return _to_image(fig)
 
 
 # ---------------------------------------------------------------------------
@@ -106,13 +292,13 @@ def _page1(doc, df, selected, benford_stats):
     )
 
     stats = [
-        ("Analysis period",           period),
-        ("Total transactions",         f"{total_txns:,}"),
-        ("Total payments (SGD)",       f"{total_amt:,.2f}"),
-        ("Unique vendors",             f"{n_vendors:,}"),
-        ("Payments to individuals",    f"{n_indiv:,} ({n_indiv/total_txns*100:.1f}%)"),
-        ("Payments to companies",      f"{n_company:,} ({n_company/total_txns*100:.1f}%)"),
-        ("Recurring payments identified", f"{n_recurring:,} (excluded from Benford's analysis)"),
+        ("Analysis period",               period),
+        ("Total transactions",             f"{total_txns:,}"),
+        ("Total payments (SGD)",           f"{total_amt:,.2f}"),
+        ("Unique vendors",                 f"{n_vendors:,}"),
+        ("Payments to individuals",        f"{n_indiv:,} ({n_indiv/total_txns*100:.1f}%)"),
+        ("Payments to companies",          f"{n_company:,} ({n_company/total_txns*100:.1f}%)"),
+        ("Recurring payments identified",  f"{n_recurring:,} (excluded from Benford's analysis)"),
     ]
 
     tbl = doc.add_table(rows=len(stats), cols=2)
@@ -134,23 +320,23 @@ def _page1(doc, df, selected, benford_stats):
     # ---- Summary of findings ----
     _heading(doc, "Summary of Findings", level=2)
 
-    n_benford = int(df.get('benford_flag', pd.Series(0)).sum())
-    n_if_high = int((df.get('if_score', pd.Series(0)) > 0.65).sum())
-    n_lof_high = int((df.get('lof_score', pd.Series(0)) > 0.65).sum())
-    n_z_high  = int((df.get('zscore_score', pd.Series(0)) > 0.65).sum())
-    n_rule    = int((df.get('rule_flags_score', pd.Series(0)) > 0).sum())
+    n_benford  = int(df.get('benford_flag', pd.Series(0)).sum())
+    n_if_high  = int((df.get('if_score',      pd.Series(0)) > 0.65).sum())
+    n_lof_high = int((df.get('lof_score',     pd.Series(0)) > 0.65).sum())
+    n_z_high   = int((df.get('zscore_score',  pd.Series(0)) > 0.65).sum())
+    n_rule     = int((df.get('rule_flags_score', pd.Series(0)) > 0).sum())
 
     score_min = selected['risk_score'].min() if 'risk_score' in selected.columns else 0
     score_max = selected['risk_score'].max() if 'risk_score' in selected.columns else 0
 
     findings = [
-        ("Benford's Law deviations flagged",  f"{n_benford:,} transactions"),
+        ("Benford's Law deviations flagged",          f"{n_benford:,} transactions"),
         ("Isolation Forest anomalies (score > 0.65)", f"{n_if_high:,} transactions"),
         ("Local outlier anomalies (score > 0.65)",    f"{n_lof_high:,} transactions"),
-        ("Statistical z-score outliers",      f"{n_z_high:,} transactions"),
-        ("Rule-based flags triggered",        f"{n_rule:,} transactions"),
-        ("Final samples selected",            f"{len(selected)} transactions"),
-        ("Risk score range (selected)",       f"{score_min:.3f} – {score_max:.3f}"),
+        ("Statistical z-score outliers",              f"{n_z_high:,} transactions"),
+        ("Rule-based flags triggered",                f"{n_rule:,} transactions"),
+        ("Final samples selected",                    f"{len(selected)} transactions"),
+        ("Risk score range (selected)",               f"{score_min:.3f} – {score_max:.3f}"),
     ]
 
     for label, value in findings:
@@ -183,7 +369,6 @@ def _page2(doc):
           size=10)
     doc.add_paragraph()
 
-    # Benford's Law
     _heading(doc, "1. Benford's Law Analysis", level=2)
     _body(doc,
           "In any large collection of naturally occurring financial amounts — such as supplier "
@@ -206,7 +391,6 @@ def _page2(doc):
           italic=True, size=10)
     doc.add_paragraph()
 
-    # Isolation Forest
     _heading(doc, "2. Isolation Forest", level=2)
     _body(doc,
           "Isolation Forest works by repeatedly splitting the payment data using random rules — "
@@ -224,7 +408,6 @@ def _page2(doc):
           size=10)
     doc.add_paragraph()
 
-    # LOF
     _heading(doc, "3. Local Outlier Factor (LOF)", level=2)
     _body(doc,
           "The Local Outlier Factor identifies payments that are unusual compared to their "
@@ -240,7 +423,6 @@ def _page2(doc):
           size=10)
     doc.add_paragraph()
 
-    # Z-score
     _heading(doc, "4. Statistical Z-Score Analysis", level=2)
     _body(doc,
           "For each Cost Centre and each Vendor, the tool calculates the average payment amount "
@@ -255,7 +437,6 @@ def _page2(doc):
           size=10)
     doc.add_paragraph()
 
-    # Rule-based flags
     _heading(doc, "5. Rule-Based Flags", level=2)
     _body(doc,
           "In addition to the statistical and machine learning methods, the tool applies a set "
@@ -290,7 +471,75 @@ def _page2(doc):
 
 
 # ---------------------------------------------------------------------------
-# Page 3 — Feature Reference Table (landscape)
+# Page 3 — Benford's Law + Risk Distribution (landscape, side by side)
+# ---------------------------------------------------------------------------
+
+def _page3_charts(doc, df, selected, benford_stats):
+    section = doc.add_section()
+    _set_landscape(section)
+
+    _heading(doc, "Analytical Charts", level=1)
+    _body(doc,
+          "Left: Benford's Law first-digit distribution (red bars = deviant digits). "
+          "Right: composite risk score distribution with the sample selection threshold.",
+          size=9)
+    doc.add_paragraph()
+
+    cutoff = float(selected['risk_score'].min()) if 'risk_score' in selected.columns else 0.0
+    img_benford = _chart_benford(benford_stats)
+    img_risk    = _chart_risk_distribution(df, cutoff)
+
+    tbl = doc.add_table(rows=1, cols=2)
+    _remove_table_borders(tbl)
+    for col_idx, img in enumerate([img_benford, img_risk]):
+        cell = tbl.cell(0, col_idx)
+        p    = cell.paragraphs[0]
+        run  = p.add_run()
+        run.add_picture(img, width=Inches(4.9))
+
+
+# ---------------------------------------------------------------------------
+# Page 4 — Amount Distribution + Monthly Timeline (landscape, stacked)
+# ---------------------------------------------------------------------------
+
+def _page4_distributions(doc, df):
+    section = doc.add_section()
+    _set_landscape(section)
+
+    _heading(doc, "Payment Distribution & Timeline", level=1)
+
+    _heading(doc, "Payment Amount Distribution", level=2)
+    _body(doc, "Histogram of payment amounts on a log scale across all transactions.", size=9)
+    _insert_image(doc, _chart_amount_distribution(df), width_inches=10.0, centre=True)
+
+    doc.add_paragraph()
+
+    _heading(doc, "Monthly Payment Timeline", level=2)
+    _body(doc,
+          "Monthly total payment value (bars, left axis) and transaction count "
+          "(line, right axis) over the analysis period.",
+          size=9)
+    _insert_image(doc, _chart_timeline(df), width_inches=10.0, centre=True)
+
+
+# ---------------------------------------------------------------------------
+# Page 5 — Top Vendors (landscape)
+# ---------------------------------------------------------------------------
+
+def _page5_vendors(doc, df):
+    section = doc.add_section()
+    _set_landscape(section)
+
+    _heading(doc, "Vendor Analysis", level=1)
+    _body(doc,
+          "Top 10 vendors ranked by transaction count (left) and by total payment value (right).",
+          size=9)
+    doc.add_paragraph()
+    _insert_image(doc, _chart_top_vendors(df), width_inches=10.0, centre=True)
+
+
+# ---------------------------------------------------------------------------
+# Page 6 — Feature Reference Table (landscape)
 # ---------------------------------------------------------------------------
 
 FEATURE_TABLE_DATA = [
@@ -387,7 +636,7 @@ FEATURE_TABLE_DATA = [
 ]
 
 
-def _page3(doc):
+def _page6_feature_table(doc):
     section = doc.add_section()
     _set_landscape(section)
 
@@ -399,19 +648,13 @@ def _page3(doc):
           size=9)
     doc.add_paragraph()
 
-    headers = [
-        "Feature",
-        "What It Measures",
-        "Threshold for Flagging",
-        "Why It Matters",
-        "Basis & Statistical Support",
-    ]
+    headers    = ["Feature", "What It Measures", "Threshold for Flagging",
+                  "Why It Matters", "Basis & Statistical Support"]
     col_widths = [Inches(1.6), Inches(2.0), Inches(1.8), Inches(2.2), Inches(3.2)]
 
     tbl = doc.add_table(rows=1 + len(FEATURE_TABLE_DATA), cols=5)
     tbl.style = 'Table Grid'
 
-    # Header row
     hdr = tbl.rows[0]
     for i, (header, width) in enumerate(zip(headers, col_widths)):
         cell = hdr.cells[i]
@@ -422,15 +665,13 @@ def _page3(doc):
         _shade_cell(cell, "1F3864")
         cell.width = width
 
-    # Data rows
     for row_idx, row_data in enumerate(FEATURE_TABLE_DATA, start=1):
-        row = tbl.rows[row_idx]
+        row   = tbl.rows[row_idx]
         shade = "F2F6FC" if row_idx % 2 == 0 else "FFFFFF"
         for col_idx, (value, width) in enumerate(zip(row_data, col_widths)):
             cell = row.cells[col_idx]
             cell.text = value
-            p = cell.paragraphs[0]
-            p.runs[0].font.size = Pt(7.5)
+            cell.paragraphs[0].runs[0].font.size = Pt(7.5)
             _shade_cell(cell, shade)
             cell.width = width
 
@@ -448,32 +689,39 @@ def _page3(doc):
 # ---------------------------------------------------------------------------
 
 def export_word_report(df, selected, benford_stats, output_path):
+    print("  Building Word report...")
     doc = Document()
 
-    # Default section margins (portrait, A4)
     section0 = doc.sections[0]
-    section0.page_width  = Cm(21.0)
-    section0.page_height = Cm(29.7)
+    section0.page_width    = Cm(21.0)
+    section0.page_height   = Cm(29.7)
     section0.left_margin   = Cm(2.5)
     section0.right_margin  = Cm(2.5)
     section0.top_margin    = Cm(2.5)
     section0.bottom_margin = Cm(2.5)
 
-    # Default paragraph font
     style = doc.styles['Normal']
     style.font.size = Pt(10)
     style.font.name = 'Calibri'
 
-    # Page 1
+    print("    Page 1 — Executive Summary")
     _page1(doc, df, selected, benford_stats)
     doc.add_page_break()
 
-    # Page 2
+    print("    Page 2 — Methodology")
     _page2(doc)
-    # No explicit page break before page 3 — the section break acts as one
 
-    # Page 3 (landscape section)
-    _page3(doc)
+    print("    Page 3 — Analytical Charts")
+    _page3_charts(doc, df, selected, benford_stats)
+
+    print("    Page 4 — Payment Distribution & Timeline")
+    _page4_distributions(doc, df)
+
+    print("    Page 5 — Vendor Analysis")
+    _page5_vendors(doc, df)
+
+    print("    Page 6 — Feature Reference Table")
+    _page6_feature_table(doc)
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     doc.save(output_path)
