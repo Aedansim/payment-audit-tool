@@ -13,7 +13,7 @@ python -c "
 import py_compile
 for f in ['src/data_loader.py','src/feature_engineering.py','src/benfords_law.py',
           'src/ml_models.py','src/sample_selector.py','src/excel_exporter.py',
-          'src/dashboard.py','src/report_generator.py']:
+          'src/report_generator.py']:
     py_compile.compile(f, doraise=True); print('OK', f)
 "
 
@@ -62,9 +62,10 @@ run_ensemble()           → df + if_score, lof_score, zscore_score columns
 select_samples()         → df_scored (full, sorted), selected (top-N with reasons)
     ↓
 export_excel()           — 3-tab openpyxl workbook
-export_dashboard()       — self-contained Plotly HTML
-export_word_report()     — 3-page python-docx report
+export_word_report()     — 6-page python-docx report with embedded matplotlib charts
 ```
+
+**Note:** The HTML dashboard (`src/dashboard.py`) was removed in April 2025. Charts are now embedded directly in the Word report using matplotlib. `plotly` remains in `requirements.txt` but is no longer used by the pipeline.
 
 ### Key design decisions to know before editing
 
@@ -80,9 +81,15 @@ export_word_report()     — 3-page python-docx report
 
 **Individual payee detection** uses the Singapore NRIC/FIN regex `^[A-Za-z][0-9]{7}[A-Za-z]$` on `Vendor ID`.
 
-**Word report pagination**: `report_generator` uses two `Document.sections` — Section 1 is portrait (pages 1–2: Executive Summary + Methodology), Section 2 is landscape (page 3: Feature Reference Table). The landscape section is created by `_set_landscape()` which swaps `page_width`/`page_height` and tightens margins to 1.5 cm.
+**Word report — 6-page structure** (`report_generator`):
+- Page 1 (portrait): Executive Summary — dataset overview table + findings bullets
+- Page 2 (portrait): Methodology — plain-English description of each analytical method
+- Page 3 (landscape): Analytical Charts — Benford's Law distribution + risk score histogram, side by side in a borderless 2-column table
+- Page 4 (landscape): Payment Distribution & Timeline — amount distribution (log scale) + monthly timeline (dual-axis bar/line), stacked full-width
+- Page 5 (landscape): Vendor Analysis — top 10 vendors by transaction count and by total amount
+- Page 6 (landscape): Feature Reference Table — 11-row reference table with thresholds and audit rationale
 
-**Dashboard HTML** is self-contained: the first Plotly figure is exported with `include_plotlyjs='cdn'` (loads from CDN) and its `<script>` tag is extracted and moved to `<head>`. All subsequent figures use `include_plotlyjs=False`.
+Each landscape section is created by `_set_landscape()` via `doc.add_section()`. Charts are generated as in-memory PNG `BytesIO` objects using matplotlib (Agg backend) and embedded with `run.add_picture()`. Helper `_remove_table_borders()` is used for side-by-side chart layout on page 3.
 
 ### Module responsibilities
 
@@ -94,7 +101,6 @@ export_word_report()     — 3-page python-docx report
 | `ml_models` | `run_ensemble(df, ml_features) → df` |
 | `sample_selector` | `select_samples(df, n_samples) → (df_scored, selected_df)` |
 | `excel_exporter` | `export_excel(df_scored, selected, summary, stats, path)` |
-| `dashboard` | `export_dashboard(df_scored, selected, stats, path)` |
 | `report_generator` | `export_word_report(df_scored, selected, stats, path)` |
 
 ### Required input columns
@@ -107,3 +113,21 @@ The tool validates exactly these 10 column names on load (raises `ValueError` if
 
 `data/` — contains user transaction files (gitignored by `data/*.xlsx`, `data/*.csv`, etc.).  
 `output/` — generated artefacts (gitignored by `output/*`). Only `data/.gitkeep` and `output/.gitkeep` are tracked.
+
+## Accuracy benchmark (synthetic test, April 2025)
+
+Tested against 530 synthetic transactions (500 normal + 30 injected anomalies, 5 per type).
+No ground-truth data exists; this is the only benchmark on record.
+
+| Anomaly Type | In Top 25 | Avg Score | Score Percentile |
+|---|---|---|---|
+| individual_payee | 5/5 | 0.358 | 98th |
+| near_threshold | 4/5 | 0.454 | 97th |
+| round_number | 4/5 | 0.348 | 96th |
+| high_amount | 3/5 | 0.521 | 97th |
+| month_end | 1/5 | 0.274 | 92nd |
+| weekend_date | 0/5 | 0.301 | 94th |
+
+**Overall: Recall 56.7% (17/30), Precision 68% (17/25), Cohen's d = 2.46 (strong separation)**
+
+Interpretation: Single-signal anomalies (weekend date, month-end) score in the 92nd–94th percentile but are displaced from the top 25 by stronger multi-signal anomalies. The tool performs best when multiple flags stack on the same transaction.
