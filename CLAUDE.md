@@ -39,6 +39,17 @@ git commit -m "short imperative description"
 git push
 ```
 
+## Git discipline
+
+Commit and push to GitHub after every meaningful unit of work — a completed feature, a bug fix, a refactor, an output module change. Do not batch multiple unrelated changes into one commit.
+
+**Commit message format:** short imperative subject line (≤ 72 chars), e.g.:
+- `fix: handle negative processing_days in zscore calculation`
+- `feat: add weekly recurrence cycle to recurring detection`
+- `refactor: extract threshold logic into shared constant`
+
+After every commit, always run `git push` immediately so the remote is never behind. The project owner uses GitHub as the authoritative backup and rollback point.
+
 ## Architecture
 
 The pipeline is strictly linear — each stage adds columns to the same DataFrame and passes it to the next. All modules live in `src/` and are orchestrated by `Payment_Audit_Tool.ipynb`.
