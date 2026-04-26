@@ -380,111 +380,305 @@ def _page2(doc):
     _heading(doc, "Methodology — How the Tool Works", level=1)
 
     _body(doc,
-          "This tool uses a combination of established statistical tests and machine learning "
-          "algorithms to identify payment transactions that are unusual and therefore warrant "
-          "further review. Each method is described below in plain terms.",
+          "This tool identifies payment transactions that are statistically unusual and therefore "
+          "warrant audit examination. It applies four independent analytical methods simultaneously, "
+          "combines their outputs into a composite risk score per transaction line item, rolls up "
+          "results to payment voucher level, assigns risk tiers, and selects a stratified sample. "
+          "The full process is documented below to support independent verification or recalibration.",
           size=10)
     doc.add_paragraph()
 
-    _heading(doc, "1. Benford's Law Analysis", level=2)
+    # ---- Stage 1 ----
+    _heading(doc, "Stage 1 — Feature Engineering", level=2)
     _body(doc,
-          "In any large collection of naturally occurring financial amounts — such as supplier "
-          "invoices or expense claims — approximately 30% of amounts start with the digit 1, "
-          "17% start with 2, 12% start with 3, and so on, declining to just 5% for the digit 9. "
-          "This pattern, known as Benford's Law, holds because it reflects how numbers grow "
-          "proportionally in the real world.",
+          "Before scoring, each transaction line is enriched with computed behavioural features: "
+          "the payment amount normalised against the vendor's historical average (z-score) and "
+          "against the cost centre average; processing days (Invoice Date to Voucher Accounting "
+          "Date); whether the invoice date is a non-working day; whether the amount is round; "
+          "whether it falls just below a common approval threshold; whether the payee is an "
+          "individual (Singapore NRIC/FIN format); and whether the same amount recurs to the same "
+          "vendor without a regular schedule.",
           size=10)
     _body(doc,
-          "When a dataset deviates significantly from this expected pattern, it may indicate that "
-          "amounts were manually entered, rounded, or constructed — rather than arising naturally "
-          "from business transactions. The tool measures this deviation using the Mean Absolute "
-          "Deviation (MAD) and a chi-square statistical test.",
-          size=10)
-    _body(doc,
-          "Important caveat: Fixed recurring payments (e.g. monthly retainers, annual licence fees) "
-          "naturally repeat the same amounts and will always deviate from Benford's distribution "
-          "without being suspicious. These payments are automatically excluded from the Benford "
-          "analysis and are identified separately.",
+          "Caveat: Recurring payments (monthly, quarterly, semi-annual, annual cycles) are detected "
+          "and tagged separately. They are excluded from Benford's Law analysis because their fixed "
+          "amounts naturally deviate from Benford's expected distribution without being suspicious.",
           italic=True, size=10)
     doc.add_paragraph()
 
-    _heading(doc, "2. Isolation Forest", level=2)
+    # ---- Stage 2 ----
+    _heading(doc, "Stage 2 — Four Independent Analytical Methods", level=2)
     _body(doc,
-          "Isolation Forest works by repeatedly splitting the payment data using random rules — "
-          "for example, 'is the amount greater than $5,000?' or 'was this processed in fewer than "
-          "2 days?' — until each transaction is isolated on its own. Transactions that are "
-          "genuinely unusual are easier to isolate because they are different from the rest in "
-          "many ways at once; they require fewer splits to separate out.",
-          size=10)
-    _body(doc,
-          "The model examines all engineered features of each payment simultaneously — including "
-          "the amount relative to the vendor's usual payments, the processing time, whether it "
-          "was dated on a non-working day, and whether the payee is an individual or a company. "
-          "Payments that are hardest to group with similar transactions receive the highest "
-          "anomaly scores.",
+          "Each transaction line is independently assessed by four methods. Using multiple independent "
+          "methods reduces both false positives (legitimate transactions wrongly flagged) and false "
+          "negatives (genuine anomalies missed). No single method is relied upon alone.",
           size=10)
     doc.add_paragraph()
 
-    _heading(doc, "3. Local Outlier Factor (LOF)", level=2)
+    _heading(doc, "1. Benford's Law", level=2)
     _body(doc,
-          "The Local Outlier Factor identifies payments that are unusual compared to their "
-          "closest neighbours in the dataset — the most similar transactions based on amount, "
-          "vendor, and timing. A payment may look ordinary in the overall dataset but be "
-          "completely out of place among transactions from the same vendor.",
+          "In any large collection of naturally occurring financial amounts, approximately 30% start "
+          "with digit 1, 17% with 2, 12% with 3, declining to 5% for digit 9. Significant deviation "
+          "from this pattern may indicate amounts were manually entered, rounded, or constructed. "
+          "Deviation is measured using the Mean Absolute Deviation (MAD) — with Non-Conformity "
+          "defined as MAD > 0.015 (Nigrini, 2012) — and a chi-square significance test.",
           size=10)
     _body(doc,
-          "For example: a $50,000 payment to a vendor whose typical invoices are around $2,000 "
-          "would score very highly, even if $50,000 is not an unusual amount across the whole "
-          "dataset. This context-sensitivity makes LOF particularly effective for catching "
-          "inflated invoices or payments to unusual recipients.",
+          "Caveat: Benford's Law is most reliable for large datasets (ideally > 1,000 non-recurring "
+          "transactions). Smaller datasets or narrow amount ranges produce less stable results. "
+          "The chi-square test is very sensitive for large datasets and may flag minor deviations "
+          "as statistically significant even when they are not practically meaningful — MAD is the "
+          "primary practical measure.",
+          italic=True, size=10)
+    doc.add_paragraph()
+
+    _heading(doc, "2. Isolation Forest (Machine Learning)", level=2)
+    _body(doc,
+          "An unsupervised machine learning model that detects anomalies by repeatedly splitting "
+          "the data using random rules until each transaction is isolated. Transactions genuinely "
+          "different from the rest require fewer splits to isolate — they are unusual in many "
+          "dimensions simultaneously. The model evaluates all engineered features together: amount, "
+          "processing time, date attributes, payee type, and vendor patterns.",
           size=10)
+    _body(doc,
+          "Caveat: Being unsupervised, the model identifies outliers relative to the current dataset. "
+          "If the dataset contains pervasive irregularities, they may appear normal relative to each "
+          "other and not be flagged. The model is most effective when the majority of transactions "
+          "are legitimate.",
+          italic=True, size=10)
+    doc.add_paragraph()
+
+    _heading(doc, "3. Local Outlier Factor — LOF (Machine Learning)", level=2)
+    _body(doc,
+          "LOF compares each transaction to its nearest neighbours — the most similar transactions "
+          "by amount, vendor, and timing. A payment may look ordinary across the full dataset but "
+          "be highly anomalous among its vendor peers. For example, a $50,000 payment to a vendor "
+          "whose typical invoices are around $2,000 would score very highly even if $50,000 appears "
+          "elsewhere in the dataset. This context-sensitivity makes LOF particularly effective for "
+          "catching inflated invoices or payments to unusual recipients.",
+          size=10)
+    _body(doc,
+          "Caveat: Same unsupervised limitation as Isolation Forest applies.",
+          italic=True, size=10)
     doc.add_paragraph()
 
     _heading(doc, "4. Statistical Z-Score Analysis", level=2)
     _body(doc,
-          "For each Cost Centre and each Vendor, the tool calculates the average payment amount "
-          "and how much payments typically vary from that average (standard deviation). Any "
-          "payment that falls more than 2 standard deviations above its group average is "
-          "flagged — a threshold that captures the top 2.5% of a normal distribution.",
-          size=10)
-    _body(doc,
-          "This is the most direct method for identifying unusually large payments within a "
-          "specific context. It is transparent and easy to explain to stakeholders, and is "
-          "supported by standard statistical practice.",
+          "For each vendor and each cost centre, the average payment amount and standard deviation "
+          "are computed across all transactions in the dataset. Payments more than 2 standard "
+          "deviations above their group average are flagged — capturing the statistical top 2.5% "
+          "of a normal distribution. This is the most transparent and directly auditable method, "
+          "equivalent to the analytical procedures described in GAAS.",
           size=10)
     doc.add_paragraph()
 
     _heading(doc, "5. Rule-Based Flags", level=2)
     _body(doc,
-          "In addition to the statistical and machine learning methods, the tool applies a set "
-          "of specific rules derived from established audit and forensic accounting practice:",
+          "Six binary rules derived from established forensic audit practice. Each triggers a "
+          "flag (1) or not (0) per transaction line:",
           size=10)
     rules = [
-        "Round number amounts (divisible by 100, 500, or 1,000) — fraudulent amounts are commonly "
-        "chosen as round numbers rather than arising from genuine invoices.",
-        "Transactions dated on weekends or Singapore public holidays — payments authorised "
-        "outside business hours may bypass normal review controls.",
-        "Month-end transactions (last 3 days of the month) — may indicate rushed processing "
-        "to meet budget targets or period-end cut-off manipulation.",
-        "Amounts just below a common approval threshold (e.g. $9,800 when the limit is $10,000) "
-        "— a recognised technique to avoid triggering higher approval requirements.",
-        "Payments to individuals (NRIC/FIN payees) — carry higher inherent risk than payments "
-        "to registered companies, as they bypass standard vendor registration processes.",
-        "Repeated identical amounts to the same vendor outside a regular schedule — may indicate "
-        "split or duplicated payments.",
-        "Unusually short or long processing time (Invoice Date to Voucher Accounting Date) — "
-        "very fast processing may indicate bypassed controls; very long delays may suggest backdating.",
+        "Round number — amount divisible by 100. Fraudulent amounts are often chosen as round "
+        "numbers rather than arising naturally from genuine invoices (Nigrini, 2012; ACFE).",
+        "Non-working day — invoice dated on a Saturday, Sunday, or Singapore public holiday. "
+        "Payments outside business hours may bypass the normal multi-person review process.",
+        "Month-end — invoice in the last 3 calendar days of the month. May indicate rushed "
+        "processing to meet budget targets or period-end financial reporting cut-offs.",
+        "Near approval threshold — within 5% below SGD 1K / 5K / 10K / 50K / 100K. Known as "
+        "'structuring' in forensic accounting — deliberately keeping amounts below authorisation "
+        "thresholds to avoid triggering higher-level approval.",
+        "Individual payee — Vendor ID matches the Singapore NRIC/FIN format (one letter, 7 digits, "
+        "one letter). Payments to individuals carry higher inherent risk as they bypass standard "
+        "vendor registration and procurement controls.",
+        "Irregular repeated amount — same amount paid to the same vendor more than twice with no "
+        "detected regular monthly/quarterly/annual schedule. May indicate split or duplicate payments.",
     ]
     for rule in rules:
         _bullet(doc, rule, size=10)
+    doc.add_paragraph()
 
+    # ---- Stage 3 — Scoring formulas ----
+    _heading(doc, "Stage 3 — Scoring Formulas and Weight Rationale", level=2)
+
+    _body(doc, "Line-Level Composite Risk Score", bold=True, size=10)
+    _body(doc,
+          "All five component scores are independently normalised to the range [0, 1] before "
+          "weighting. The weighted composite formula is:",
+          size=10)
+    _body(doc,
+          "    risk_score  =  0.30 × IF  +  0.25 × LOF  +  0.25 × Z-score"
+          "  +  0.15 × rule_flags  +  0.05 × Benford",
+          bold=True, size=10)
     doc.add_paragraph()
     _body(doc,
-          "Each flag is used as a contributing signal — not a standalone conclusion. A transaction "
-          "is only selected if multiple signals point to it, or if one signal is extremely strong. "
-          "Benford's Law in particular is treated as a weak signal: a transaction will not be "
-          "selected based on Benford deviation alone.",
-          italic=True, size=10)
+          "The rule flags score is the fraction of the 6 binary rules triggered for that line "
+          "(e.g. 2 rules triggered = 2/6 = 0.33). The Benford score is normalised relative to "
+          "the maximum Benford deviation in the dataset. The Z-score signal is the larger of the "
+          "vendor z-score and cost centre z-score, min-max normalised to [0, 1] across all lines.",
+          size=10)
+    doc.add_paragraph()
+
+    _body(doc, "Weight Rationale", bold=True, size=10)
+    doc.add_paragraph()
+
+    weight_rows = [
+        ("Isolation Forest", "30%",
+         "Primary ML signal; highest weight because it evaluates all features simultaneously "
+         "and captures complex multi-dimensional patterns invisible to individual rules or "
+         "statistics alone."),
+        ("Local Outlier Factor", "25%",
+         "Context-sensitive complement to Isolation Forest. Peer-group benchmarking reduces false "
+         "positives by comparing each transaction to its most similar counterparts rather than "
+         "the full dataset."),
+        ("Z-Score Analysis", "25%",
+         "Transparent and directly auditable. Equivalent to standard GAAS analytical procedures. "
+         "High weight because it is statistically rigorous and independently defensible to "
+         "stakeholders and auditors."),
+        ("Rule-Based Flags", "15%",
+         "Directly encodes established forensic audit heuristics. Lower weight because rules are "
+         "binary (on/off) and each has known limitations; their primary value is confirming and "
+         "explaining signals raised by the other methods."),
+        ("Benford's Law", "5%",
+         "Supplementary signal only. Powerful at the dataset level but noisy at the individual "
+         "transaction level. Low weight prevents Benford deviation alone from driving selection. "
+         "Further suppressed when all other signals are below average (see rule below)."),
+    ]
+
+    tbl = doc.add_table(rows=1 + len(weight_rows), cols=3)
+    tbl.style = 'Table Grid'
+    col_widths_wt = [Inches(1.5), Inches(0.6), Inches(4.1)]
+    hdr = tbl.rows[0]
+    for i, label in enumerate(["Method", "Weight", "Basis for Weight Assignment"]):
+        cell = hdr.cells[i]
+        cell.text = label
+        cell.paragraphs[0].runs[0].bold = True
+        cell.paragraphs[0].runs[0].font.size = Pt(9)
+        cell.paragraphs[0].runs[0].font.color.rgb = WHITE
+        _shade_cell(cell, "1F3864")
+        cell.width = col_widths_wt[i]
+
+    for row_idx, (method, weight, rationale) in enumerate(weight_rows, start=1):
+        row = tbl.rows[row_idx]
+        shade = "F2F6FC" if row_idx % 2 == 0 else "FFFFFF"
+        for col_idx, (value, width) in enumerate(zip([method, weight, rationale], col_widths_wt)):
+            cell = row.cells[col_idx]
+            cell.text = value
+            cell.paragraphs[0].runs[0].font.size = Pt(9)
+            _shade_cell(cell, shade)
+            cell.width = width
+
+    doc.add_paragraph()
+
+    _body(doc, "Benford Suppression Rule", bold=True, size=10)
+    _body(doc,
+          "If a transaction's Isolation Forest, LOF, Z-score, and rule flags scores are ALL below "
+          "their respective dataset medians — meaning the transaction shows no elevated risk on any "
+          "other signal — its Benford contribution is zeroed out entirely. This prevents Benford "
+          "deviation alone from selecting a transaction. Benford evidence is only counted when at "
+          "least one other signal is also elevated.",
+          size=10)
+    doc.add_paragraph()
+
+    # ---- Stage 4 — Voucher rollup ----
+    _heading(doc, "Stage 4 — Voucher-Level Rollup", level=2)
+    _body(doc,
+          "Individual scored lines are grouped by Voucher ID — the document auditors physically "
+          "pull — rather than by invoice number. The voucher score formula is:",
+          size=10)
+    _body(doc,
+          "    voucher_score (multi-line)  =  0.60 × max_line_score"
+          "  +  0.25 × mean_line_score  +  0.15 × flag_density",
+          bold=True, size=10)
+    _body(doc,
+          "    voucher_score (single-line)  =  line risk_score  (no rollup needed)",
+          bold=True, size=10)
+    doc.add_paragraph()
+    _body(doc,
+          "Flag density = total rule flags triggered across all lines in the voucher ÷ "
+          "(6 flag types × number of lines). The 60/25/15 split reflects that audit significance "
+          "is primarily driven by the worst line in the voucher, moderated by whether other lines "
+          "are also elevated, and supplemented by the breadth of rule flag coverage. For multi-line "
+          "vouchers, reason codes in the output are prefixed with [Account Code] so auditors can "
+          "identify exactly which line triggered each flag.",
+          size=10)
+    doc.add_paragraph()
+
+    # ---- ML Consensus ----
+    _heading(doc, "ML Consensus Flag", level=2)
+    _body(doc,
+          "Each transaction line receives an ML Consensus count: the number of the three ML-based "
+          "methods (Isolation Forest, LOF, Z-score) that independently score that line above 0.65. "
+          "A voucher is marked 'ML Consensus = Yes' if any of its lines is flagged by 2 or more "
+          "of the three methods simultaneously.",
+          size=10)
+    _body(doc,
+          "The ML Consensus flag does not alter the composite score — it is a corroborating "
+          "indicator shown in the Excel output. When multiple independent methods agree that a "
+          "transaction is anomalous, the probability of a true anomaly is materially higher than "
+          "when only one method flags it. Auditors should prioritise ML-consensus vouchers within "
+          "the selected sample when conducting fieldwork.",
+          size=10)
+    doc.add_paragraph()
+
+    # ---- Risk tiers and selection ----
+    _heading(doc, "Risk Tier Assignment and Sample Selection", level=2)
+    _body(doc,
+          "After all voucher scores are computed, tiers are assigned by percentile across the full "
+          "voucher population: HIGH (top 5%), MEDIUM (80th–95th percentile), LOW (bottom 80%). "
+          "Percentile-based tiers ensure the tool adapts to any dataset — HIGH always covers the "
+          "most anomalous 5% regardless of absolute score values, which vary by dataset size and "
+          "composition.",
+          size=10)
+    doc.add_paragraph()
+    _body(doc, "The final sample is drawn using stratified selection:", size=10)
+    selection_steps = [
+        "All HIGH-tier vouchers are mandatory. If HIGH alone fills or exceeds the sample quota, "
+        "only the top-scoring HIGH vouchers are taken.",
+        "Approximately 75% of remaining sample slots are filled from MEDIUM-tier vouchers in "
+        "descending score order.",
+        "Remaining slots are filled by random selection from LOW-tier vouchers, providing "
+        "baseline coverage of lower-risk transactions and a check against sampling bias.",
+    ]
+    for s in selection_steps:
+        _bullet(doc, s, size=10)
+    _body(doc,
+          "This approach is consistent with AICPA and IIA guidance on risk-stratified sampling: "
+          "highest-risk items receive full mandatory coverage while lower-risk tiers receive "
+          "proportional representation.",
+          size=10)
+    doc.add_paragraph()
+
+    # ---- Caveats ----
+    _heading(doc, "Important Caveats", level=2)
+    _body(doc,
+          "The following limitations should be understood before acting on the tool's output:",
+          size=10)
+    caveats = [
+        "Risk prioritisation, not fraud evidence: a high voucher score indicates a statistically "
+        "unusual transaction that warrants examination. It does not constitute evidence of fraud "
+        "or error. All selected vouchers require professional judgement to assess.",
+        "Line-item scope: the tool scores individual transaction lines, not total voucher amounts. "
+        "A large voucher split across many small lines of normal individual amounts may not score "
+        "highly even if the total is anomalous. Auditors should review total voucher values "
+        "alongside individual line scores.",
+        "Unsupervised models: Isolation Forest and LOF identify outliers relative to the dataset "
+        "provided. If the dataset contains pervasive irregularities, both models may treat them "
+        "as normal because they resemble the majority. They are most effective when most "
+        "transactions are legitimate.",
+        "Benford reliability: the analysis is most meaningful for several hundred or more "
+        "non-recurring transactions. Small datasets or datasets with narrow amount ranges "
+        "produce less reliable Benford results.",
+        "Pre-calibrated weights: component weights and rule thresholds are calibrated for typical "
+        "corporate payment datasets. Unusual compositions (e.g. predominantly recurring payments, "
+        "narrow amount bands) may require recalibration. Weights can be overridden by setting "
+        "sample_selector.WEIGHTS before calling select_samples().",
+        "No organisational ground truth: the tool has not been trained on confirmed fraud cases "
+        "from this organisation. Benchmark performance is measured against synthetic test data "
+        "with injected anomalies. Real-world performance depends on the nature and prevalence "
+        "of anomalies actually present in the data.",
+    ]
+    for caveat in caveats:
+        _bullet(doc, caveat, size=10)
 
 
 # ---------------------------------------------------------------------------

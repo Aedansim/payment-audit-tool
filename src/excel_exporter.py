@@ -363,7 +363,61 @@ def _sheet_benford(wb, benford_summary, stats):
     c = conformity_colors.get(stats['conformity'], "000000")
     verdict_cell.font = Font(bold=True, color=c)
 
-    tbl_start = 11
+    # Explanation block for MAD, Chi-Square, and Conformity Verdict
+    expl_hdr = 9
+    ws.cell(row=expl_hdr, column=1,
+            value="Understanding These Metrics").font = Font(bold=True, size=11, color="1F3864")
+    ws.cell(row=expl_hdr, column=1).fill = PatternFill("solid", fgColor="D9E1F2")
+    ws.merge_cells(f'A{expl_hdr}:G{expl_hdr}')
+    ws.row_dimensions[expl_hdr].height = 18
+
+    _explanations = [
+        (10, "MAD (Mean Absolute Deviation)",
+         "Measures the average absolute difference between observed and Benford-expected first-digit "
+         "frequencies. Thresholds (Nigrini, 2012): < 0.006 = Close Conformity; "
+         "0.006–0.012 = Acceptable Conformity; 0.012–0.015 = Marginally Acceptable; "
+         "> 0.015 = Non-Conformity. A lower MAD means the data more closely follows Benford's Law. "
+         "MAD is the primary practical measure for audit interpretation."),
+        (11, "Chi-Square Statistic & p-value",
+         "Tests whether the observed digit frequencies are statistically significantly different from "
+         "Benford's expected values. A p-value < 0.05 indicates the difference is statistically "
+         "significant. Important caveat: for large datasets (> 1,000 transactions), chi-square is very "
+         "sensitive and will often flag minor deviations as significant even when they are not "
+         "practically meaningful. Always read chi-square alongside MAD — a significant p-value with "
+         "a small MAD (< 0.012) may not warrant audit action."),
+        (12, "Conformity Verdict",
+         "Summarises the overall finding based on the MAD threshold. Non-Conformity does not mean "
+         "fraud — it means the first-digit distribution is unusual and warrants investigation of the "
+         "most deviant digits. The tool assigns Benford's Law only a 5% weight in the composite risk "
+         "score and further suppresses it when all other risk signals are below average, so a "
+         "Non-Conformity verdict will not on its own cause any voucher to be selected for audit."),
+    ]
+    for _rn, _lbl, _txt in _explanations:
+        ws.cell(row=_rn, column=1, value=_lbl).font = Font(bold=True, size=9, color="1F3864")
+        _ec = ws.cell(row=_rn, column=2, value=_txt)
+        _ec.font = Font(size=9)
+        _ec.alignment = Alignment(wrap_text=True, vertical='top')
+        ws.merge_cells(f'B{_rn}:G{_rn}')
+        ws.row_dimensions[_rn].height = 52
+
+    _key_row = 14
+    _key_msg = (
+        "Key Takeaway: Read MAD and Chi-Square together. MAD quantifies the size of the deviation; "
+        "Chi-Square (p-value) tests whether it is statistically significant for the sample size. "
+        "In large datasets, a significant p-value paired with a small MAD (< 0.012) may not be "
+        "practically meaningful for audit purposes. The strongest audit signal is a Non-Conformity "
+        "MAD (> 0.015) combined with a low p-value — this warrants investigation of the most deviant "
+        "digits (highlighted in orange in the frequency table below). Transactions whose first digit "
+        "falls among the most deviant are identified by the 'Most Deviant Digits' field above."
+    )
+    _kc = ws.cell(row=_key_row, column=1, value=_key_msg)
+    _kc.font = Font(bold=True, size=9, color="1F3864")
+    _kc.alignment = Alignment(wrap_text=True, vertical='top')
+    _kc.fill = PatternFill("solid", fgColor="FFF2CC")
+    ws.merge_cells(f'A{_key_row}:G{_key_row}')
+    ws.row_dimensions[_key_row].height = 72
+
+    tbl_start = 16
     _write_header_row(ws, list(benford_summary.columns), row=tbl_start)
     for r_idx, row_data in enumerate(benford_summary.itertuples(index=False), start=tbl_start + 1):
         digit = row_data[0]
@@ -429,16 +483,6 @@ def _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats)
         ("Total line items in selected vouchers",
          f"{int(selected_vouchers['voucher_line_count'].sum()):,}"
          if 'voucher_line_count' in selected_vouchers.columns else "N/A"),
-        ("", None),
-        ("METHODOLOGY", None),
-        ("Scoring approach",
-         "Two-level: each line item scored individually (Benford, ML ensemble, "
-         "z-scores, rule flags), then rolled up to payment voucher level. "
-         "Voucher score = 0.60 × max line score + 0.25 × mean line score + "
-         "0.15 × flag density across all lines."),
-        ("Selection approach",
-         "Stratified by voucher risk tier: all HIGH vouchers mandatory, "
-         "proportional MEDIUM (~75% of remaining slots), random LOW baseline."),
     ]
 
     for r_offset, (label, value) in enumerate(rows, start=3):
@@ -463,9 +507,6 @@ def _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats)
 
     for r in range(3, 3 + len(rows)):
         ws.row_dimensions[r].height = 15
-    last = 3 + len(rows) - 1
-    ws.row_dimensions[last - 1].height = 45
-    ws.row_dimensions[last].height = 45
 
 
 # ---------------------------------------------------------------------------
