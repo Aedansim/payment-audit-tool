@@ -630,21 +630,12 @@ def _page2(doc):
           "composition.",
           size=10)
     doc.add_paragraph()
-    _body(doc, "The final sample is drawn using stratified selection:", size=10)
-    selection_steps = [
-        "All HIGH-tier vouchers are mandatory. If HIGH alone fills or exceeds the sample quota, "
-        "only the top-scoring HIGH vouchers are taken.",
-        "Approximately 75% of remaining sample slots are filled from MEDIUM-tier vouchers in "
-        "descending score order.",
-        "Remaining slots are filled by random selection from LOW-tier vouchers, providing "
-        "baseline coverage of lower-risk transactions and a check against sampling bias.",
-    ]
-    for s in selection_steps:
-        _bullet(doc, s, size=10)
     _body(doc,
-          "This approach is consistent with AICPA and IIA guidance on risk-stratified sampling: "
-          "highest-risk items receive full mandatory coverage while lower-risk tiers receive "
-          "proportional representation.",
+          "The final sample is stratified across the three risk tiers, with vouchers classified "
+          "as HIGH, MEDIUM, or LOW based on their percentile rank. The sample composition reflects "
+          "the relative risk level of each tier, ensuring the highest-risk vouchers receive "
+          "proportionally greater coverage. This approach is consistent with AICPA and IIA guidance "
+          "on risk-stratified sampling.",
           size=10)
     doc.add_paragraph()
 
@@ -672,10 +663,14 @@ def _page2(doc):
         "corporate payment datasets. Unusual compositions (e.g. predominantly recurring payments, "
         "narrow amount bands) may require recalibration. Weights can be overridden by setting "
         "sample_selector.WEIGHTS before calling select_samples().",
-        "No organisational ground truth: the tool has not been trained on confirmed fraud cases "
-        "from this organisation. Benchmark performance is measured against synthetic test data "
-        "with injected anomalies. Real-world performance depends on the nature and prevalence "
-        "of anomalies actually present in the data.",
+        "Not a fraud detection tool: the tool has not been trained on confirmed fraud cases "
+        "from this organisation. It identifies unusual patterns by learning the normal behaviour "
+        "of the organisation's data. Real-world performance depends on the nature and prevalence "
+        "of anomalies present in the data. Transactions not flagged by the tool should not be "
+        "interpreted as confirmation that they are free from irregularities, as sophisticated "
+        "anomalies that closely mimic normal payment patterns may not be detected. Auditors "
+        "should not rely on the tool to detect fraud but should exercise professional judgement "
+        "in investigating unusual transactions identified.",
     ]
     for caveat in caveats:
         _bullet(doc, caveat, size=10)
