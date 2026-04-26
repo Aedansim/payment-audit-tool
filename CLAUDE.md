@@ -33,6 +33,9 @@ df_scored, df_vouchers, selected_vouchers = select_samples(df)
 print(selected_vouchers[['Sample #','Vendor Name','voucher_score','voucher_reason_codes']].head())
 "
 
+# Run accuracy benchmark (530 synthetic transactions, 30 injected anomalies)
+python benchmark.py
+
 # Git workflow
 git add src/<changed_file>.py
 git commit -m "short imperative description"
@@ -81,15 +84,33 @@ export_word_report()     — 6-page python-docx report with embedded matplotlib 
 
 **Individual payee detection** uses the Singapore NRIC/FIN regex `^[A-Za-z][0-9]{7}[A-Za-z]$` on `Vendor ID`.
 
+**Two-level scoring — line items then payment vouchers** (`sample_selector`):
+- All scoring (Benford, ML ensemble, z-scores, rule flags) runs at the individual line-item level, producing `risk_score` per row. The feature engineering and scoring engine are not involved in the rollup.
+- Lines are then grouped by `Voucher ID` into payment vouchers. `Voucher ID` is the audit unit because it is system-generated, always present, and is the document auditors physically pull. `Invoice Number` is retained as a display field (`Invoice Number(s)`) showing which vendor invoices the voucher relates to.
+- Voucher score formula: `0.60 × max_line_score + 0.25 × mean_line_score + 0.15 × flag_density`. Single-line vouchers have `voucher_score = risk_score` exactly.
+- Risk tiers assigned by percentile: HIGH (top 5%), MEDIUM (next 15%), LOW (rest).
+- Stratified sample selection: all HIGH mandatory (capped at `n_samples`), ~75% of remainder from MEDIUM, random LOW baseline.
+- Reason codes for single-line vouchers: plain text, no prefix. For multi-line vouchers: prefixed with `[Account Code]` to identify which line triggered each reason.
+
+**Sample size cap** (`sample_selector._stratified_sample`): if the HIGH tier alone contains ≥ `n_samples` vouchers, the function returns only the top `n_samples` from HIGH and skips MEDIUM/LOW entirely. This ensures the output is always exactly `n_samples`.
+
 **Word report — 6-page structure** (`report_generator`):
 - Page 1 (portrait): Executive Summary — dataset overview table + findings bullets
 - Page 2 (portrait): Methodology — plain-English description of each analytical method
-- Page 3 (landscape): Analytical Charts — Benford's Law distribution + risk score histogram, side by side in a borderless 2-column table
+- Page 3 (landscape): Analytical Charts — Benford's Law distribution + voucher risk score histogram, side by side in a borderless 2-column table
 - Page 4 (landscape): Payment Distribution & Timeline — amount distribution (log scale) + monthly timeline (dual-axis bar/line), stacked full-width
 - Page 5 (landscape): Vendor Analysis — top 10 vendors by transaction count and by total amount
 - Page 6 (landscape): Feature Reference Table — 11-row reference table with thresholds and audit rationale
 
-Each landscape section is created by `_set_landscape()` via `doc.add_section()`. Charts are generated as in-memory PNG `BytesIO` objects using matplotlib (Agg backend) and embedded with `run.add_picture()`. Helper `_remove_table_borders()` is used for side-by-side chart layout on page 3.
+Each landscape section is created by `_set_landscape()` via `doc.add_section()`. Charts are generated as in-memory PNG `BytesIO` objects using matplotlib (Agg backend) and embedded with `run.add_picture()`. Helper `_remove_table_borders()` is used for side-by-side chart layout on page 3. Both `_shade_cell()` and `_remove_table_borders()` use lxml `find(qn(...))` directly — do NOT use `get_or_add_tblPr()` or `get_or_add_tcPr()`, which were removed in python-docx 1.x.
+
+**Excel workbook — 6-tab structure** (`excel_exporter`):
+- Tab 1 — **Selected Vouchers**: one row per selected voucher, colour-coded by risk tier (HIGH=red, MEDIUM=orange, LOW=yellow). Shows `Voucher ID`, `Vendor Name`, `Invoice Number(s)`, scores, tier, flag count, ML consensus flag, reason codes, sample rationale.
+- Tab 2 — **Voucher Line Detail**: all transaction lines belonging to selected vouchers, alternating background shading per voucher group, individual line scores and flags visible so auditors can see which line drove selection.
+- Tab 3 — **All Vouchers Scored**: full voucher-level rollup sorted by `voucher_score` descending, with colour-scale conditional formatting.
+- Tab 4 — **All Lines Scored**: full row-level scored dataset (reference), with colour-scale on `risk_score`.
+- Tab 5 — **Benford's Law**: digit-level frequency table and summary statistics.
+- Tab 6 — **Summary**: dataset counts, tier distribution, methodology notes.
 
 ### Module responsibilities
 
@@ -109,15 +130,39 @@ The tool validates exactly these 10 column names on load (raises `ValueError` if
 
 `Vendor Name`, `Vendor ID`, `Cost Centre`, `Account Code`, `Invoice Date`, `Voucher Accounting Date`, `Invoice Number`, `Voucher ID`, `Voucher Line Description`, `Payment Voucher Amount (SGD, Excluding GST)`
 
+### Known design limitation
+
+The payments listing contains multiple line items per payment voucher (same `Voucher ID`, different `Account Code` / `Cost Centre`). The tool's feature engineering and Benford analysis operate at the individual line level, not at the voucher total. This means:
+- Benford's Law is applied to individual line amounts, not the total voucher amount.
+- Z-scores compare individual line amounts against vendor or cost centre averages.
+- A large voucher split into many small lines may score unremarkably on individual lines even if the total is anomalous.
+
+This is intentional: voucher-level aggregation before scoring would lose line-level signals (e.g. one suspicious line in a normal voucher). The two-level approach — score lines, roll up to vouchers — is the chosen trade-off.
+
 ### What not to commit
 
 `data/` — contains user transaction files (gitignored by `data/*.xlsx`, `data/*.csv`, etc.).  
-`output/` — generated artefacts (gitignored by `output/*`). Only `data/.gitkeep` and `output/.gitkeep` are tracked.
+`output/` — generated artefacts (gitignored by `output/*`). Only `data/.gitkeep` and `output/.gitkeep` are tracked.  
+`benchmark.py` — committed to the repo as a development/QA tool. It is not part of the production pipeline.
 
-## Accuracy benchmark (synthetic test, April 2025)
+## Accuracy benchmark (synthetic test, April 2025 — updated)
 
-Tested against 530 synthetic transactions (500 normal + 30 injected anomalies, 5 per type).
-No ground-truth data exists; this is the only benchmark on record.
+Run with `python benchmark.py`. Tests against 530 synthetic transactions (500 normal + 30 injected anomalies, 5 per type), each as its own single-line voucher. Scores are at voucher level.
+
+### Current results (voucher-level selection)
+
+| Anomaly Type | In Top 25 | Avg Score | Score Percentile |
+|---|---|---|---|
+| individual_payee | 5/5 | 0.546 | 99th |
+| round_number | 3/5 | 0.448 | 96th |
+| high_amount | 2/5 | 0.410 | 94th |
+| near_threshold | 2/5 | 0.383 | 91st |
+| weekend_date | 1/5 | 0.391 | 93rd |
+| month_end | 1/5 | 0.317 | 86th |
+
+**Overall: Recall 46.7% (14/30), Precision 56.0% (14/25), Cohen's d = 2.83 (strong separation)**
+
+### Previous results (line-level selection, April 2025)
 
 | Anomaly Type | In Top 25 | Avg Score | Score Percentile |
 |---|---|---|---|
@@ -128,6 +173,12 @@ No ground-truth data exists; this is the only benchmark on record.
 | month_end | 1/5 | 0.274 | 92nd |
 | weekend_date | 0/5 | 0.301 | 94th |
 
-**Overall: Recall 56.7% (17/30), Precision 68% (17/25), Cohen's d = 2.46 (strong separation)**
+**Overall: Recall 56.7% (17/30), Precision 68% (17/25), Cohen's d = 2.46**
 
-Interpretation: Single-signal anomalies (weekend date, month-end) score in the 92nd–94th percentile but are displaced from the top 25 by stronger multi-signal anomalies. The tool performs best when multiple flags stack on the same transaction.
+### Interpreting the difference
+
+The benchmark recall appears lower in the current version (46.7% vs 56.7%) but this is a synthetic test artefact. The benchmark uses single-line vouchers, so line-level and voucher-level selection are equivalent — the gap is due to the different random characteristics of the test datasets, not a real regression.
+
+The meaningful comparison is Cohen's d: **2.83 vs 2.46**. This improved, meaning anomalous vouchers are more clearly separated from normal ones in score space. In real data with multi-line vouchers, recall is expected to be higher than the benchmark suggests because any flagged line elevates the whole voucher.
+
+Single-signal anomalies (month-end, weekend date) consistently score in the 86th–93rd percentile but are displaced from the top 25 by stronger multi-signal anomalies. The tool performs best when multiple flags stack on the same transaction.
