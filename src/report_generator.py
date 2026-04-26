@@ -467,7 +467,10 @@ def _page2(doc):
           "For each vendor and each cost centre, the average payment amount and standard deviation "
           "are computed across all transactions in the dataset. Payments more than 2 standard "
           "deviations above their group average are flagged — capturing the statistical top 2.5% "
-          "of a normal distribution.",
+          "of a normal distribution. This approach is consistent with the objective of analytical "
+          "procedures which requires auditors to identify and investigate significant fluctuations "
+          "or relationships that are inconsistent with other relevant information or that differ "
+          "from expected values.",
           size=10)
     doc.add_paragraph()
 
@@ -477,7 +480,10 @@ def _page2(doc):
           "flag (1) or not (0) per transaction line:",
           size=10)
     rules = [
-        "Round number — amount divisible by 100.",
+        "Round number — amount divisible by 100. Round number amounts may warrant attention as "
+        "fabricated or manually chosen amounts sometimes exhibit round number bias, where "
+        "individuals select psychologically convenient figures rather than amounts arising from "
+        "genuine invoices (Nigrini, 2012; ACFE Fraud Examiners Manual).",
         "Non-working day — invoice dated on a Saturday, Sunday, or Singapore public holiday. "
         "Payments outside business hours may bypass the normal multi-person review process.",
         "Month-end — invoice in the last 3 calendar days of the month. May indicate rushed "
