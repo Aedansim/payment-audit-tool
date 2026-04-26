@@ -467,8 +467,7 @@ def _page2(doc):
           "For each vendor and each cost centre, the average payment amount and standard deviation "
           "are computed across all transactions in the dataset. Payments more than 2 standard "
           "deviations above their group average are flagged — capturing the statistical top 2.5% "
-          "of a normal distribution. This is the most transparent and directly auditable method, "
-          "equivalent to the analytical procedures described in GAAS.",
+          "of a normal distribution.",
           size=10)
     doc.add_paragraph()
 
@@ -478,8 +477,7 @@ def _page2(doc):
           "flag (1) or not (0) per transaction line:",
           size=10)
     rules = [
-        "Round number — amount divisible by 100. Fraudulent amounts are often chosen as round "
-        "numbers rather than arising naturally from genuine invoices (Nigrini, 2012; ACFE).",
+        "Round number — amount divisible by 100.",
         "Non-working day — invoice dated on a Saturday, Sunday, or Singapore public holiday. "
         "Payments outside business hours may bypass the normal multi-person review process.",
         "Month-end — invoice in the last 3 calendar days of the month. May indicate rushed "
@@ -615,8 +613,7 @@ def _page2(doc):
           "The ML Consensus flag does not alter the composite score — it is a corroborating "
           "indicator shown in the Excel output. When multiple independent methods agree that a "
           "transaction is anomalous, the probability of a true anomaly is materially higher than "
-          "when only one method flags it. Auditors should prioritise ML-consensus vouchers within "
-          "the selected sample when conducting fieldwork.",
+          "when only one method flags it.",
           size=10)
     doc.add_paragraph()
 
@@ -634,8 +631,7 @@ def _page2(doc):
           "The final sample is stratified across the three risk tiers, with vouchers classified "
           "as HIGH, MEDIUM, or LOW based on their percentile rank. The sample composition reflects "
           "the relative risk level of each tier, ensuring the highest-risk vouchers receive "
-          "proportionally greater coverage. This approach is consistent with AICPA and IIA guidance "
-          "on risk-stratified sampling.",
+          "proportionally greater coverage.",
           size=10)
     doc.add_paragraph()
 
@@ -755,90 +751,66 @@ FEATURE_TABLE_DATA = [
         "How much the payment amount differs from what this vendor is typically paid",
         "Z-score > 2.0",
         "Unusually large payments to a vendor may indicate over-billing or fictitious invoices",
-        "The ±2 standard deviation (2-sigma) rule covers ~95% of normally distributed values. "
-        "Widely referenced in AICPA and IIA audit guidance and GAAS analytical procedures.",
     ),
     (
         "Amount vs. cost centre average",
         "How much the payment amount differs from the typical amounts processed in that cost centre",
         "Z-score > 2.0",
         "Helps detect amounts that are out of place for the department, suggesting possible miscoding or inflated claims",
-        "Same statistical basis as above (2-sigma rule). Applying it at cost centre level is consistent "
-        "with GAAS group-level analytical procedure recommendations.",
     ),
     (
         "Round number",
         "Whether the payment amount ends in 00, 000, or 0,000",
         "Exactly divisible by 100",
         "Genuine invoice amounts rarely end in round numbers; manually chosen or fictitious amounts often do",
-        "Heuristic supported by forensic accounting literature. Nigrini (2012) and the ACFE Fraud "
-        "Examiners Manual identify 'round number bias' as a recognised indicator of constructed amounts.",
     ),
     (
         "Non-working day",
         "Whether the invoice is dated on a Saturday, Sunday, or Singapore public holiday",
         "Sat, Sun, or SG public holiday (holidays library)",
         "Payments authorised outside business hours may bypass the normal multi-person review and approval process",
-        "Binary rule. Supported by the COSO Internal Control Framework and IIA Standard 2120, which "
-        "require scrutiny of transactions occurring outside normal operating hours.",
     ),
     (
         "Month-end",
         "Whether the invoice is dated in the last 3 calendar days of the month",
         "Last 3 calendar days of month",
         "May indicate rushed processing to meet budget targets or period-end financial reporting cut-offs",
-        "Recognised audit heuristic (ACFE and IIA guidance). The last-3-days window is a commonly "
-        "applied cut-off in expenditure analytics.",
     ),
     (
         "Near approval threshold",
         "Whether the amount falls within 5% below a common approval limit",
         "Within 5% below SGD 1K / 5K / 10K / 50K / 100K",
         "A well-documented technique ('structuring') to avoid triggering higher-level approval requirements",
-        "Known as structuring or threshold avoidance in forensic accounting. Referenced in the ACFE "
-        "Fraud Examiners Manual. The 5% margin is a standard audit convention.",
     ),
     (
         "Individual payee",
         "Whether the Vendor ID matches the Singapore NRIC/FIN format (one letter, 7 digits, one letter)",
         "Regex: ^[A-Z][0-9]{7}[A-Z]$",
         "Payments to individuals carry higher inherent risk; they bypass standard vendor vetting and procurement controls",
-        "Binary classification based on the Singapore NRIC/FIN ID format. IRAS and MAS regulatory "
-        "guidance distinguishes individual from corporate payees.",
     ),
     (
         "Processing time",
         "Number of calendar days between Invoice Date and Voucher Accounting Date",
         "Outside 5th–95th percentile of dataset",
         "Very fast processing may indicate bypassed controls; unusually long delays may indicate backdating",
-        "Percentile-based bounds are a standard non-parametric outlier method. The 5th–95th range "
-        "(90% central interval) is analogous to a 90% confidence interval, consistent with GAAS "
-        "analytical procedure timing analysis.",
     ),
     (
         "Description length",
         "Character length of the Voucher Line Description field",
         "Absolute z-score > 2.5",
         "Very short descriptions may indicate incomplete entries; very long ones may indicate unusual or fabricated narrative",
-        "Z-score method applied to text length. A 2.5-sigma threshold (stricter than 2.0 for amounts) "
-        "accounts for higher natural variability in text. Z-score thresholds of 2.0–3.0 are standard "
-        "in audit data analytics.",
     ),
     (
         "Irregular repeated amount",
         "Same vendor paid the same amount more than twice, with no regular monthly/quarterly/annual schedule",
         "> 2 occurrences with no detected recurring cycle",
         "May indicate duplicated or split payments that were structured to avoid detection",
-        "Heuristic aligned with ACFE guidance on duplicate payment detection. The recurrence-cycle "
-        "exclusion ensures legitimate fixed payments (rent, retainers) are not falsely flagged.",
     ),
     (
         "Benford's Law first digit",
         "Whether the payment amount's first digit deviates significantly from Benford's expected frequency",
         "First digit among the top-3 most deviant digits; non-recurring payments only",
         "Systematic deviation may indicate manually constructed or manipulated amounts",
-        "Based on Newcomb (1881) and Benford (1938). MAD thresholds from Nigrini (2012), the "
-        "leading academic reference for forensic application of Benford's Law, recognised by the AICPA.",
     ),
 ]
 
@@ -850,16 +822,14 @@ def _page6_feature_table(doc):
     _heading(doc, "Feature Reference Table", level=1)
     _body(doc,
           "The table below lists each analytical feature used by the tool, the threshold that "
-          "determines whether a transaction is flagged, the audit rationale, and the statistical "
-          "or professional basis for the threshold.",
+          "determines whether a transaction is flagged, and the audit rationale.",
           size=9)
     doc.add_paragraph()
 
-    headers    = ["Feature", "What It Measures", "Threshold for Flagging",
-                  "Why It Matters", "Basis & Statistical Support"]
-    col_widths = [Inches(1.6), Inches(2.0), Inches(1.8), Inches(2.2), Inches(3.2)]
+    headers    = ["Feature", "What It Measures", "Threshold for Flagging", "Why It Matters"]
+    col_widths = [Inches(1.8), Inches(2.4), Inches(2.0), Inches(4.3)]
 
-    tbl = doc.add_table(rows=1 + len(FEATURE_TABLE_DATA), cols=5)
+    tbl = doc.add_table(rows=1 + len(FEATURE_TABLE_DATA), cols=4)
     tbl.style = 'Table Grid'
 
     hdr = tbl.rows[0]
@@ -885,9 +855,7 @@ def _page6_feature_table(doc):
     doc.add_paragraph()
     _body(doc,
           "References: Nigrini, M.J. (2012). Benford's Law: Applications for Forensic Accounting, "
-          "Auditing, and Fraud Detection. ACFE Fraud Examiners Manual (current edition). "
-          "AICPA Audit and Accounting Guide: Analytical Procedures. IIA Standards 2120 (Risk Management). "
-          "COSO Internal Control — Integrated Framework.",
+          "Auditing, and Fraud Detection. ACFE Fraud Examiners Manual (current edition).",
           italic=True, size=7.5)
 
 
