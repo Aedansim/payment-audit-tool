@@ -238,10 +238,14 @@ def _assign_risk_tier(df_inv):
 
 
 def _stratified_sample(df_inv, n_samples):
-    """All HIGH mandatory; proportional MEDIUM (~75% of remainder); random LOW baseline."""
+    """All HIGH mandatory (capped at n_samples); proportional MEDIUM (~75% of remainder); random LOW baseline."""
     high   = df_inv[df_inv['invoice_risk_tier'] == 'HIGH']
     medium = df_inv[df_inv['invoice_risk_tier'] == 'MEDIUM']
     low    = df_inv[df_inv['invoice_risk_tier'] == 'LOW']
+
+    # If HIGH alone fills or exceeds the quota, return only the top n_samples from HIGH
+    if len(high) >= n_samples:
+        return high.head(n_samples).reset_index(drop=True)
 
     selected = [high]
     remaining = n_samples - len(high)
