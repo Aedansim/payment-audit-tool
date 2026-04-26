@@ -96,21 +96,21 @@ export_word_report()     — 6-page python-docx report with embedded matplotlib 
 
 **Word report — 6-page structure** (`report_generator`):
 - Page 1 (portrait): Executive Summary — dataset overview table + findings bullets
-- Page 2 (portrait): Methodology — plain-English description of each analytical method
+- Page 2 (portrait): Methodology — comprehensive audit-grade standalone document covering: four-stage pipeline overview (feature engineering → scoring → voucher rollup → sample selection); each of the five analytical methods with caveats; exact line-level scoring formula (`0.30×IF + 0.25×LOF + 0.25×Z-score + 0.15×rule_flags + 0.05×Benford`) and weight rationale table; Benford suppression rule; voucher rollup formula (`0.60×max + 0.25×mean + 0.15×flag_density`); ML consensus flag explanation; risk tier percentile cutoffs; stratified sample selection logic; six transparency caveats
 - Page 3 (landscape): Analytical Charts — Benford's Law distribution + voucher risk score histogram, side by side in a borderless 2-column table
 - Page 4 (landscape): Payment Distribution & Timeline — amount distribution (log scale) + monthly timeline (dual-axis bar/line), stacked full-width
 - Page 5 (landscape): Vendor Analysis — top 10 vendors by transaction count and by total amount
-- Page 6 (landscape): Feature Reference Table — 11-row reference table with thresholds and audit rationale
+- Page 6 (landscape): Feature Reference Table — 11-row reference table with 4 columns: Feature, What It Measures, Threshold for Flagging, Why It Matters. Column widths: 1.8/2.4/2.0/4.3 inches. References footer cites Nigrini (2012) and ACFE Fraud Examiners Manual only.
 
 Each landscape section is created by `_set_landscape()` via `doc.add_section()`. Charts are generated as in-memory PNG `BytesIO` objects using matplotlib (Agg backend) and embedded with `run.add_picture()`. Helper `_remove_table_borders()` is used for side-by-side chart layout on page 3. Both `_shade_cell()` and `_remove_table_borders()` use lxml `find(qn(...))` directly — do NOT use `get_or_add_tblPr()` or `get_or_add_tcPr()`, which were removed in python-docx 1.x.
 
 **Excel workbook — 6-tab structure** (`excel_exporter`):
-- Tab 1 — **Selected Vouchers**: one row per selected voucher, colour-coded by risk tier (HIGH=red, MEDIUM=orange, LOW=yellow). Shows `Voucher ID`, `Vendor Name`, `Invoice Number(s)`, scores, tier, flag count, ML consensus flag, reason codes, sample rationale.
+- Tab 1 — **Selected Vouchers**: one row per selected voucher, colour-coded by risk tier (HIGH=red, MEDIUM=orange, LOW=yellow). Shows `Voucher ID`, `Vendor Name`, `Invoice Number(s)`, scores, tier, flag count, ML consensus flag, reason codes. No Sample Rationale column.
 - Tab 2 — **Voucher Line Detail**: all transaction lines belonging to selected vouchers, alternating background shading per voucher group, individual line scores and flags visible so auditors can see which line drove selection.
 - Tab 3 — **All Vouchers Scored**: full voucher-level rollup sorted by `voucher_score` descending, with colour-scale conditional formatting.
 - Tab 4 — **All Lines Scored**: full row-level scored dataset (reference), with colour-scale on `risk_score`.
-- Tab 5 — **Benford's Law**: digit-level frequency table and summary statistics.
-- Tab 6 — **Summary**: dataset counts, tier distribution, methodology notes.
+- Tab 5 — **Benford's Law**: summary statistics (rows 4–8), followed by an "Understanding These Metrics" explanation block (rows 9–15) covering MAD thresholds (Nigrini 2012), chi-square large-dataset caveat, Conformity Verdict interpretation, and a Key Takeaway box on reading MAD and chi-square together. Digit frequency table starts at row 16 (deviant digits highlighted in orange).
+- Tab 6 — **Summary**: dataset counts, tier distribution, and audit sample breakdown. No methodology notes.
 
 ### Module responsibilities
 
