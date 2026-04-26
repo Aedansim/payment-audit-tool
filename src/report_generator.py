@@ -79,7 +79,10 @@ def _coloured_para(doc, label, value, colour=NAVY, size=11):
 
 def _shade_cell(cell, hex_color):
     tc = cell._tc
-    tcPr = tc.get_or_add_tcPr()
+    tcPr = tc.find(qn('w:tcPr'))
+    if tcPr is None:
+        tcPr = OxmlElement('w:tcPr')
+        tc.insert(0, tcPr)
     shd = OxmlElement('w:shd')
     shd.set(qn('w:val'), 'clear')
     shd.set(qn('w:color'), 'auto')
@@ -88,13 +91,17 @@ def _shade_cell(cell, hex_color):
 
 
 def _remove_table_borders(tbl):
-    tbl_pr = tbl._tbl.get_or_add_tblPr()
+    tbl_element = tbl._tbl
+    tblPr = tbl_element.find(qn('w:tblPr'))
+    if tblPr is None:
+        tblPr = OxmlElement('w:tblPr')
+        tbl_element.insert(0, tblPr)
     tbl_borders = OxmlElement('w:tblBorders')
     for border_name in ('top', 'left', 'bottom', 'right', 'insideH', 'insideV'):
         border = OxmlElement(f'w:{border_name}')
         border.set(qn('w:val'), 'none')
         tbl_borders.append(border)
-    tbl_pr.append(tbl_borders)
+    tblPr.append(tbl_borders)
 
 
 def _set_landscape(section):
