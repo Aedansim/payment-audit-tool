@@ -3,10 +3,9 @@ import pandas as pd
 import numpy as np
 from openpyxl import Workbook
 from openpyxl.styles import (
-    PatternFill, Font, Alignment, Border, Side, GradientFill
+    PatternFill, Font, Alignment, Border, Side
 )
 from openpyxl.utils import get_column_letter
-from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.formatting.rule import ColorScaleRule
 
 AMOUNT_COL = 'Payment Voucher Amount (SGD, Excluding GST)'
@@ -18,7 +17,7 @@ HIGH_FILL    = PatternFill("solid", fgColor="FFB3B3")   # light red
 MED_FILL     = PatternFill("solid", fgColor="FFDDB3")   # light orange
 LOW_FILL     = PatternFill("solid", fgColor="FFFAB3")   # light yellow
 ALT_FILL     = PatternFill("solid", fgColor="F2F2F2")   # light grey
-ALT2_FILL    = PatternFill("solid", fgColor="E8EFF8")   # soft blue-grey (invoice alternation)
+ALT2_FILL    = PatternFill("solid", fgColor="E8EFF8")   # soft blue-grey (voucher alternation)
 SECTION_FILL = PatternFill("solid", fgColor="D9E1F2")   # soft blue
 
 THIN = Side(style="thin", color="BBBBBB")
@@ -58,38 +57,38 @@ def _safe_value(value):
 
 
 # ---------------------------------------------------------------------------
-# Sheet 1 — Selected Invoices
+# Sheet 1 — Selected Vouchers
 # ---------------------------------------------------------------------------
 
-_INV_DISPLAY_COLS = [
-    'Vendor ID', 'Vendor Name', 'Invoice Number',
-    'invoice_line_count', 'invoice_score', 'invoice_risk_tier',
-    'invoice_flag_count', 'invoice_any_ml_consensus',
-    'invoice_reason_codes', 'Sample_Rationale',
+_VCH_DISPLAY_COLS = [
+    'Voucher ID', 'Vendor ID', 'Vendor Name', 'Invoice Number(s)',
+    'voucher_line_count', 'voucher_score', 'voucher_risk_tier',
+    'voucher_flag_count', 'voucher_any_ml_consensus',
+    'voucher_reason_codes', 'Sample_Rationale',
 ]
 
-_INV_HEADERS = [
-    'Vendor ID', 'Vendor Name', 'Invoice Number',
-    'Line Count', 'Invoice Score', 'Risk Tier',
+_VCH_HEADERS = [
+    'Voucher ID', 'Vendor ID', 'Vendor Name', 'Invoice Number(s)',
+    'Line Count', 'Voucher Score', 'Risk Tier',
     'Flag Count', 'ML Consensus', 'Reason Codes', 'Sample Rationale',
 ]
 
 
-def _sheet_selected_invoices(wb, selected_invoices):
+def _sheet_selected_vouchers(wb, selected_vouchers):
     ws = wb.active
-    ws.title = "Selected Invoices"
+    ws.title = "Selected Vouchers"
     ws.freeze_panes = "B2"
 
-    headers = ['Sample #'] + _INV_HEADERS
+    headers = ['Sample #'] + _VCH_HEADERS
     _write_header_row(ws, headers)
 
-    cols = ['Sample #'] + _INV_DISPLAY_COLS
-    present = [c for c in cols if c in selected_invoices.columns]
+    cols = ['Sample #'] + _VCH_DISPLAY_COLS
+    present = [c for c in cols if c in selected_vouchers.columns]
 
     for r_idx, row_data in enumerate(
-            selected_invoices[present].itertuples(index=False), start=2):
-        tier = row_data[present.index('invoice_risk_tier')] \
-            if 'invoice_risk_tier' in present else 'LOW'
+            selected_vouchers[present].itertuples(index=False), start=2):
+        tier_idx = present.index('voucher_risk_tier') if 'voucher_risk_tier' in present else -1
+        tier = row_data[tier_idx] if tier_idx >= 0 else 'LOW'
         row_fill = _TIER_FILL.get(tier, LOW_FILL)
 
         for c_idx, value in enumerate(row_data, start=1):
@@ -100,19 +99,18 @@ def _sheet_selected_invoices(wb, selected_invoices):
             cell.fill = row_fill
 
             col_name = present[c_idx - 1]
-            if col_name == 'invoice_score':
+            if col_name == 'voucher_score':
                 cell.number_format = '0.0000'
 
     ws.row_dimensions[1].height = 30
     _auto_width(ws)
-    # Widen reason codes and rationale columns
     n = len(headers)
-    ws.column_dimensions[get_column_letter(n - 1)].width = 60
-    ws.column_dimensions[get_column_letter(n)].width = 40
+    ws.column_dimensions[get_column_letter(n - 1)].width = 60   # Reason Codes
+    ws.column_dimensions[get_column_letter(n)].width = 40       # Sample Rationale
 
 
 # ---------------------------------------------------------------------------
-# Sheet 2 — Invoice Line Detail
+# Sheet 2 — Voucher Line Detail
 # ---------------------------------------------------------------------------
 
 _ORIG_COLS = [
@@ -123,12 +121,12 @@ _ORIG_COLS = [
 ]
 
 _LINE_SCORE_COLS = {
-    'risk_score':       'Risk Score',
-    'if_score':         'Isolation Forest',
-    'lof_score':        'Local Outlier',
-    'zscore_score':     'Z-Score Signal',
-    'benford_score':    "Benford Score",
-    'rule_flags_score': 'Rule Flags Score',
+    'risk_score':        'Risk Score',
+    'if_score':          'Isolation Forest',
+    'lof_score':         'Local Outlier',
+    'zscore_score':      'Z-Score Signal',
+    'benford_score':     "Benford Score",
+    'rule_flags_score':  'Rule Flags Score',
     'ML_Consensus_Flag': 'ML Consensus Count',
 }
 
@@ -140,23 +138,21 @@ _LINE_FLAG_COLS = [
 ]
 
 
-def _sheet_invoice_line_detail(wb, df_scored, selected_invoices):
-    ws = wb.create_sheet("Invoice Line Detail")
+def _sheet_voucher_line_detail(wb, df_scored, selected_vouchers):
+    ws = wb.create_sheet("Voucher Line Detail")
     ws.freeze_panes = "B2"
 
-    # Filter df_scored to lines belonging to selected invoices
-    selected_keys = set(selected_invoices['_invoice_key']) \
-        if '_invoice_key' in selected_invoices.columns else set()
+    selected_vids = set(selected_vouchers['Voucher ID']) \
+        if 'Voucher ID' in selected_vouchers.columns else set()
 
-    if selected_keys and '_invoice_key' in df_scored.columns:
-        lines = df_scored[df_scored['_invoice_key'].isin(selected_keys)].copy()
+    if selected_vids and 'Voucher ID' in df_scored.columns:
+        lines = df_scored[df_scored['Voucher ID'].isin(selected_vids)].copy()
     else:
         lines = df_scored.copy()
 
-    # Sort so lines from the same invoice are grouped together
-    if '_invoice_key' in lines.columns:
-        lines = lines.sort_values(['_invoice_key', 'risk_score'],
-                                  ascending=[True, False]).reset_index(drop=True)
+    lines = lines.sort_values(
+        ['Voucher ID', 'risk_score'], ascending=[True, False]
+    ).reset_index(drop=True)
 
     orig_present  = [c for c in _ORIG_COLS if c in lines.columns]
     score_present = [c for c in _LINE_SCORE_COLS if c in lines.columns]
@@ -171,22 +167,21 @@ def _sheet_invoice_line_detail(wb, df_scored, selected_invoices):
 
     date_fmt = {'Invoice Date': 'DD/MM/YYYY', 'Voucher Accounting Date': 'DD/MM/YYYY'}
 
-    # Alternating shading per invoice group
+    # Alternate shading by Voucher ID group
     fills = [ALT_FILL, ALT2_FILL]
     fill_idx = 0
-    prev_key = None
+    prev_vid = None
 
-    for r_idx, (_, orig_row) in enumerate(
-            lines[display_cols].iterrows(), start=2):
-        cur_key = orig_row.get('_invoice_key', None) if '_invoice_key' in lines.columns else None
-        if cur_key != prev_key:
+    for r_idx, orig_row in lines[display_cols].iterrows():
+        cur_vid = orig_row.get('Voucher ID', None) if 'Voucher ID' in lines.columns else None
+        if cur_vid != prev_vid:
             fill_idx = 1 - fill_idx
-            prev_key = cur_key
+            prev_vid = cur_vid
         row_fill = fills[fill_idx]
 
         for c_idx, (col_name, value) in enumerate(
                 zip(sub.columns, orig_row[display_cols].values), start=1):
-            cell = ws.cell(row=r_idx, column=c_idx)
+            cell = ws.cell(row=r_idx + 2, column=c_idx)
             cell.value = _safe_value(value)
             cell.border = THIN_BORDER
             cell.alignment = Alignment(vertical='top', wrap_text=False)
@@ -196,43 +191,41 @@ def _sheet_invoice_line_detail(wb, df_scored, selected_invoices):
 
     ws.row_dimensions[1].height = 30
     _auto_width(ws)
-    if '_line_reason' in display_cols or 'Line Reason Codes' in sub.columns:
+    if 'Line Reason Codes' in sub.columns:
         reason_idx = list(sub.columns).index('Line Reason Codes') + 1
         ws.column_dimensions[get_column_letter(reason_idx)].width = 55
 
 
 # ---------------------------------------------------------------------------
-# Sheet 3 — All Invoices Scored
+# Sheet 3 — All Vouchers Scored
 # ---------------------------------------------------------------------------
 
-_ALL_INV_COLS = [
-    '_invoice_key', 'Vendor ID', 'Vendor Name', 'Invoice Number',
-    'invoice_line_count', 'invoice_score', 'invoice_risk_tier',
-    'invoice_max_score', 'invoice_mean_score',
-    'invoice_flag_count', 'invoice_any_ml_consensus',
-    'invoice_reason_codes',
+_ALL_VCH_COLS = [
+    'Voucher ID', 'Vendor ID', 'Vendor Name', 'Invoice Number(s)',
+    'voucher_line_count', 'voucher_score', 'voucher_risk_tier',
+    'voucher_max_score', 'voucher_mean_score',
+    'voucher_flag_count', 'voucher_any_ml_consensus',
+    'voucher_reason_codes',
 ]
 
-_ALL_INV_HEADERS = [
-    'Invoice Key', 'Vendor ID', 'Vendor Name', 'Invoice Number',
-    'Line Count', 'Invoice Score', 'Risk Tier',
+_ALL_VCH_HEADERS = [
+    'Voucher ID', 'Vendor ID', 'Vendor Name', 'Invoice Number(s)',
+    'Line Count', 'Voucher Score', 'Risk Tier',
     'Max Line Score', 'Mean Line Score',
     'Flag Count', 'ML Consensus', 'Reason Codes',
 ]
 
 
-def _sheet_all_invoices(wb, df_invoices):
-    ws = wb.create_sheet("All Invoices Scored")
+def _sheet_all_vouchers(wb, df_vouchers):
+    ws = wb.create_sheet("All Vouchers Scored")
     ws.freeze_panes = "B2"
 
-    present = [c for c in _ALL_INV_COLS if c in df_invoices.columns]
-    headers = [_ALL_INV_HEADERS[_ALL_INV_COLS.index(c)] for c in present]
+    present = [c for c in _ALL_VCH_COLS if c in df_vouchers.columns]
+    headers = [_ALL_VCH_HEADERS[_ALL_VCH_COLS.index(c)] for c in present]
     _write_header_row(ws, headers)
 
     for r_idx, row_data in enumerate(
-            df_invoices[present].itertuples(index=False), start=2):
-        tier_idx = present.index('invoice_risk_tier') if 'invoice_risk_tier' in present else -1
-        tier = row_data[tier_idx] if tier_idx >= 0 else 'LOW'
+            df_vouchers[present].itertuples(index=False), start=2):
         fill = ALT_FILL if r_idx % 2 == 0 else PatternFill("solid", fgColor="FFFFFF")
 
         for c_idx, value in enumerate(row_data, start=1):
@@ -243,17 +236,16 @@ def _sheet_all_invoices(wb, df_invoices):
             cell.fill = fill
 
             col_name = present[c_idx - 1]
-            if col_name in ('invoice_score', 'invoice_max_score', 'invoice_mean_score'):
+            if col_name in ('voucher_score', 'voucher_max_score', 'voucher_mean_score'):
                 cell.number_format = '0.0000'
 
     ws.row_dimensions[1].height = 30
     _auto_width(ws)
 
-    # Colour scale on Invoice Score column
-    if 'invoice_score' in present:
-        sc_letter = get_column_letter(present.index('invoice_score') + 1)
+    if 'voucher_score' in present:
+        sc_letter = get_column_letter(present.index('voucher_score') + 1)
         ws.conditional_formatting.add(
-            f"{sc_letter}2:{sc_letter}{len(df_invoices) + 1}",
+            f"{sc_letter}2:{sc_letter}{len(df_vouchers) + 1}",
             ColorScaleRule(
                 start_type='min', start_color='63BE7B',
                 mid_type='percentile', mid_value=50, mid_color='FFEB84',
@@ -261,13 +253,13 @@ def _sheet_all_invoices(wb, df_invoices):
             )
         )
 
-    if 'invoice_reason_codes' in present:
-        rc_letter = get_column_letter(present.index('invoice_reason_codes') + 1)
+    if 'voucher_reason_codes' in present:
+        rc_letter = get_column_letter(present.index('voucher_reason_codes') + 1)
         ws.column_dimensions[rc_letter].width = 60
 
 
 # ---------------------------------------------------------------------------
-# Sheet 4 — All Lines Scored  (full row-level dataset, reference only)
+# Sheet 4 — All Lines Scored  (full row-level dataset, reference)
 # ---------------------------------------------------------------------------
 
 _SCORE_COLS_DISPLAY = {
@@ -398,7 +390,7 @@ def _sheet_benford(wb, benford_summary, stats):
 # Sheet 6 — Summary
 # ---------------------------------------------------------------------------
 
-def _sheet_summary(wb, df_scored, df_invoices, selected_invoices, benford_stats):
+def _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats):
     ws = wb.create_sheet("Summary")
 
     ws['A1'] = "Payment Audit — Summary"
@@ -407,50 +399,51 @@ def _sheet_summary(wb, df_scored, df_invoices, selected_invoices, benford_stats)
     ws.row_dimensions[1].height = 28
 
     n_lines    = len(df_scored)
-    n_invoices = len(df_invoices)
-    avg_lines  = n_lines / n_invoices if n_invoices > 0 else 0
-    n_sel      = len(selected_invoices)
-    n_sel_high = int((selected_invoices.get('invoice_risk_tier', pd.Series()) == 'HIGH').sum())
-    n_sel_med  = int((selected_invoices.get('invoice_risk_tier', pd.Series()) == 'MEDIUM').sum())
-    n_sel_low  = int((selected_invoices.get('invoice_risk_tier', pd.Series()) == 'LOW').sum())
-    n_inv_high = int((df_invoices.get('invoice_risk_tier', pd.Series()) == 'HIGH').sum())
-    n_inv_med  = int((df_invoices.get('invoice_risk_tier', pd.Series()) == 'MEDIUM').sum())
-    n_inv_low  = int((df_invoices.get('invoice_risk_tier', pd.Series()) == 'LOW').sum())
+    n_vouchers = len(df_vouchers)
+    avg_lines  = n_lines / n_vouchers if n_vouchers > 0 else 0
+    n_sel      = len(selected_vouchers)
+    n_sel_high = int((selected_vouchers.get('voucher_risk_tier', pd.Series()) == 'HIGH').sum())
+    n_sel_med  = int((selected_vouchers.get('voucher_risk_tier', pd.Series()) == 'MEDIUM').sum())
+    n_sel_low  = int((selected_vouchers.get('voucher_risk_tier', pd.Series()) == 'LOW').sum())
+    n_vch_high = int((df_vouchers.get('voucher_risk_tier', pd.Series()) == 'HIGH').sum())
+    n_vch_med  = int((df_vouchers.get('voucher_risk_tier', pd.Series()) == 'MEDIUM').sum())
+    n_vch_low  = int((df_vouchers.get('voucher_risk_tier', pd.Series()) == 'LOW').sum())
 
     rows = [
         ("DATASET", None),
         ("Total transaction line items", f"{n_lines:,}"),
-        ("Unique invoices identified", f"{n_invoices:,}"),
-        ("Average lines per invoice", f"{avg_lines:.1f}"),
+        ("Unique payment vouchers", f"{n_vouchers:,}"),
+        ("Average lines per voucher", f"{avg_lines:.1f}"),
         ("Recurring payments excluded from Benford's", f"{benford_stats.get('n_excluded_recurring', 0):,}"),
         ("", None),
-        ("INVOICE RISK TIERS (all invoices)", None),
-        ("HIGH risk invoices (top 5%)", f"{n_inv_high:,}"),
-        ("MEDIUM risk invoices (next 15%)", f"{n_inv_med:,}"),
-        ("LOW risk invoices", f"{n_inv_low:,}"),
+        ("VOUCHER RISK TIERS (all vouchers)", None),
+        ("HIGH risk vouchers (top 5%)", f"{n_vch_high:,}"),
+        ("MEDIUM risk vouchers (next 15%)", f"{n_vch_med:,}"),
+        ("LOW risk vouchers", f"{n_vch_low:,}"),
         ("", None),
         ("AUDIT SAMPLE SELECTED", None),
-        ("Total invoices selected", f"{n_sel:,}"),
+        ("Total vouchers selected", f"{n_sel:,}"),
         ("  — HIGH risk (mandatory)", f"{n_sel_high:,}"),
         ("  — MEDIUM risk (proportional)", f"{n_sel_med:,}"),
         ("  — LOW risk (baseline)", f"{n_sel_low:,}"),
-        ("Total line items in selected invoices",
-         f"{int(selected_invoices['invoice_line_count'].sum()):,}" if 'invoice_line_count' in selected_invoices.columns else "N/A"),
+        ("Total line items in selected vouchers",
+         f"{int(selected_vouchers['voucher_line_count'].sum()):,}"
+         if 'voucher_line_count' in selected_vouchers.columns else "N/A"),
         ("", None),
         ("METHODOLOGY", None),
         ("Scoring approach",
          "Two-level: each line item scored individually (Benford, ML ensemble, "
-         "z-scores, rule flags), then rolled up to invoice level. "
-         "Invoice score = 0.60 × max line score + 0.25 × mean line score + "
+         "z-scores, rule flags), then rolled up to payment voucher level. "
+         "Voucher score = 0.60 × max line score + 0.25 × mean line score + "
          "0.15 × flag density across all lines."),
         ("Selection approach",
-         "Stratified by invoice risk tier: all HIGH invoices mandatory, "
+         "Stratified by voucher risk tier: all HIGH vouchers mandatory, "
          "proportional MEDIUM (~75% of remaining slots), random LOW baseline."),
     ]
 
     for r_offset, (label, value) in enumerate(rows, start=3):
         label_cell = ws.cell(row=r_offset, column=1, value=label)
-        is_section = value is None and label not in ('', )
+        is_section = value is None and label != ''
         if is_section:
             label_cell.font = Font(bold=True, color="1F3864", size=10)
             label_cell.fill = SECTION_FILL
@@ -468,10 +461,8 @@ def _sheet_summary(wb, df_scored, df_invoices, selected_invoices, benford_stats)
     ws.column_dimensions['B'].width = 30
     ws.column_dimensions['C'].width = 30
 
-    # Set row heights for methodology rows
     for r in range(3, 3 + len(rows)):
         ws.row_dimensions[r].height = 15
-    # Taller rows for wrapped methodology text
     last = 3 + len(rows) - 1
     ws.row_dimensions[last - 1].height = 45
     ws.row_dimensions[last].height = 45
@@ -481,24 +472,16 @@ def _sheet_summary(wb, df_scored, df_invoices, selected_invoices, benford_stats)
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def export_excel(df_scored, df_invoices, selected_invoices,
+def export_excel(df_scored, df_vouchers, selected_vouchers,
                  benford_summary, benford_stats, output_path):
     wb = Workbook()
 
-    # Attach _invoice_key to selected_invoices so line detail sheet can filter
-    if '_invoice_key' not in selected_invoices.columns and '_invoice_key' in df_invoices.columns:
-        inv_num_col = selected_invoices['Invoice Number'] if 'Invoice Number' in selected_invoices.columns else None
-        selected_invoices = selected_invoices.merge(
-            df_invoices[['Invoice Number', '_invoice_key']].drop_duplicates('Invoice Number'),
-            on='Invoice Number', how='left'
-        )
-
-    _sheet_selected_invoices(wb, selected_invoices)
-    _sheet_invoice_line_detail(wb, df_scored, selected_invoices)
-    _sheet_all_invoices(wb, df_invoices)
+    _sheet_selected_vouchers(wb, selected_vouchers)
+    _sheet_voucher_line_detail(wb, df_scored, selected_vouchers)
+    _sheet_all_vouchers(wb, df_vouchers)
     _sheet_all_lines(wb, df_scored)
     _sheet_benford(wb, benford_summary, benford_stats)
-    _sheet_summary(wb, df_scored, df_invoices, selected_invoices, benford_stats)
+    _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats)
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)

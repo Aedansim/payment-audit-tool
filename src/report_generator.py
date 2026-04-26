@@ -161,15 +161,15 @@ def _chart_benford(benford_stats):
     return _to_image(fig)
 
 
-def _chart_risk_distribution(df_invoices, cutoff_score):
-    scores = df_invoices['invoice_score'].dropna()
+def _chart_risk_distribution(df_vouchers, cutoff_score):
+    scores = df_vouchers['voucher_score'].dropna()
     fig, ax = plt.subplots(figsize=(5.5, 4.0))
     ax.hist(scores, bins=50, color=_HEX['blue'], alpha=0.75, edgecolor='white')
     ax.axvline(cutoff_score, color=_HEX['red'], linestyle='--', linewidth=2,
                label=f'Selection threshold ({cutoff_score:.3f})')
-    ax.set_xlabel('Invoice Risk Score')
-    ax.set_ylabel('Number of Invoices')
-    ax.set_title('Invoice Risk Score Distribution',
+    ax.set_xlabel('Voucher Risk Score')
+    ax.set_ylabel('Number of Vouchers')
+    ax.set_title('Voucher Risk Score Distribution',
                  fontsize=11, fontweight='bold', color=_HEX['navy'])
     ax.legend(fontsize=8)
     ax.grid(axis='y', alpha=0.3)
@@ -278,15 +278,15 @@ def _chart_top_vendors(df):
 # Page 1 — Executive Summary
 # ---------------------------------------------------------------------------
 
-def _page1(doc, df, df_invoices, selected_invoices, benford_stats):
+def _page1(doc, df, df_vouchers, selected_vouchers, benford_stats):
     _heading(doc, "Executive Summary", level=1)
 
     # ---- Dataset overview ----
     _heading(doc, "Dataset Overview", level=2)
 
     total_lines  = len(df)
-    n_invoices   = len(df_invoices)
-    avg_lines    = total_lines / n_invoices if n_invoices > 0 else 0
+    n_vouchers   = len(df_vouchers)
+    avg_lines    = total_lines / n_vouchers if n_vouchers > 0 else 0
     total_amt    = df[AMOUNT_COL].sum()
     date_min     = df['Invoice Date'].min()
     date_max     = df['Invoice Date'].max()
@@ -301,15 +301,15 @@ def _page1(doc, df, df_invoices, selected_invoices, benford_stats):
     )
 
     stats = [
-        ("Analysis period",                 period),
-        ("Total transaction line items",    f"{total_lines:,}"),
-        ("Unique invoices identified",      f"{n_invoices:,}"),
-        ("Average lines per invoice",       f"{avg_lines:.1f}"),
-        ("Total payments (SGD)",            f"{total_amt:,.2f}"),
-        ("Unique vendors",                  f"{n_vendors:,}"),
-        ("Payments to individuals",         f"{n_indiv:,} ({n_indiv/total_lines*100:.1f}%)"),
-        ("Payments to companies",           f"{n_company:,} ({n_company/total_lines*100:.1f}%)"),
-        ("Recurring payments identified",   f"{n_recurring:,} (excluded from Benford's analysis)"),
+        ("Analysis period",                    period),
+        ("Total transaction line items",       f"{total_lines:,}"),
+        ("Unique payment vouchers",            f"{n_vouchers:,}"),
+        ("Average lines per voucher",          f"{avg_lines:.1f}"),
+        ("Total payments (SGD)",               f"{total_amt:,.2f}"),
+        ("Unique vendors",                     f"{n_vendors:,}"),
+        ("Payments to individuals",            f"{n_indiv:,} ({n_indiv/total_lines*100:.1f}%)"),
+        ("Payments to companies",              f"{n_company:,} ({n_company/total_lines*100:.1f}%)"),
+        ("Recurring payments identified",      f"{n_recurring:,} (excluded from Benford's analysis)"),
     ]
 
     tbl = doc.add_table(rows=len(stats), cols=2)
@@ -337,12 +337,12 @@ def _page1(doc, df, df_invoices, selected_invoices, benford_stats):
     n_z_high   = int((df.get('zscore_score',  pd.Series(0)) > 0.65).sum())
     n_rule     = int((df.get('rule_flags_score', pd.Series(0)) > 0).sum())
 
-    n_sel_lines = int(selected_invoices['invoice_line_count'].sum()) \
-        if 'invoice_line_count' in selected_invoices.columns else len(selected_invoices)
-    score_min = selected_invoices['invoice_score'].min() \
-        if 'invoice_score' in selected_invoices.columns else 0
-    score_max = selected_invoices['invoice_score'].max() \
-        if 'invoice_score' in selected_invoices.columns else 0
+    n_sel_lines = int(selected_vouchers['voucher_line_count'].sum()) \
+        if 'voucher_line_count' in selected_vouchers.columns else len(selected_vouchers)
+    score_min = selected_vouchers['voucher_score'].min() \
+        if 'voucher_score' in selected_vouchers.columns else 0
+    score_max = selected_vouchers['voucher_score'].max() \
+        if 'voucher_score' in selected_vouchers.columns else 0
 
     findings = [
         ("Benford's Law deviations flagged",          f"{n_benford:,} transaction lines"),
@@ -350,8 +350,8 @@ def _page1(doc, df, df_invoices, selected_invoices, benford_stats):
         ("Local outlier anomalies (score > 0.65)",    f"{n_lof_high:,} transaction lines"),
         ("Statistical z-score outliers",              f"{n_z_high:,} transaction lines"),
         ("Rule-based flags triggered",                f"{n_rule:,} transaction lines"),
-        ("Final invoices selected for audit",         f"{len(selected_invoices)} invoices ({n_sel_lines:,} line items)"),
-        ("Invoice risk score range (selected)",       f"{score_min:.3f} – {score_max:.3f}"),
+        ("Final vouchers selected for audit",         f"{len(selected_vouchers)} payment vouchers ({n_sel_lines:,} line items)"),
+        ("Voucher risk score range (selected)",        f"{score_min:.3f} – {score_max:.3f}"),
     ]
 
     for label, value in findings:
@@ -364,11 +364,11 @@ def _page1(doc, df, df_invoices, selected_invoices, benford_stats):
 
     doc.add_paragraph()
     _body(doc,
-          f"The {len(selected_invoices)} invoices selected represent those with the highest composite "
-          "risk scores across all analytical methods. Scoring is performed at line-item level and "
-          "then rolled up to invoice level, so auditors can pull complete invoices rather than "
-          "individual lines. Each selected invoice has documented reason codes "
-          "(see the 'Selected Invoices' tab in the accompanying Excel workbook).",
+          f"The {len(selected_vouchers)} payment vouchers selected represent those with the highest "
+          "composite risk scores across all analytical methods. Scoring is performed at line-item "
+          "level and then rolled up to payment voucher level, so auditors can pull complete vouchers "
+          "for review. Each selected voucher has documented reason codes "
+          "(see the 'Selected Vouchers' tab in the accompanying Excel workbook).",
           size=10)
 
 
@@ -491,21 +491,21 @@ def _page2(doc):
 # Page 3 — Benford's Law + Risk Distribution (landscape, side by side)
 # ---------------------------------------------------------------------------
 
-def _page3_charts(doc, df_invoices, selected_invoices, benford_stats):
+def _page3_charts(doc, df_vouchers, selected_vouchers, benford_stats):
     section = doc.add_section()
     _set_landscape(section)
 
     _heading(doc, "Analytical Charts", level=1)
     _body(doc,
           "Left: Benford's Law first-digit distribution (red bars = deviant digits). "
-          "Right: invoice risk score distribution with the sample selection threshold.",
+          "Right: voucher risk score distribution with the sample selection threshold.",
           size=9)
     doc.add_paragraph()
 
-    cutoff = float(selected_invoices['invoice_score'].min()) \
-        if 'invoice_score' in selected_invoices.columns else 0.0
+    cutoff = float(selected_vouchers['voucher_score'].min()) \
+        if 'voucher_score' in selected_vouchers.columns else 0.0
     img_benford = _chart_benford(benford_stats)
-    img_risk    = _chart_risk_distribution(df_invoices, cutoff)
+    img_risk    = _chart_risk_distribution(df_vouchers, cutoff)
 
     tbl = doc.add_table(rows=1, cols=2)
     _remove_table_borders(tbl)
@@ -706,7 +706,7 @@ def _page6_feature_table(doc):
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def export_word_report(df, df_invoices, selected_invoices, benford_stats, output_path):
+def export_word_report(df, df_vouchers, selected_vouchers, benford_stats, output_path):
     print("  Building Word report...")
     doc = Document()
 
@@ -723,14 +723,14 @@ def export_word_report(df, df_invoices, selected_invoices, benford_stats, output
     style.font.name = 'Calibri'
 
     print("    Page 1 — Executive Summary")
-    _page1(doc, df, df_invoices, selected_invoices, benford_stats)
+    _page1(doc, df, df_vouchers, selected_vouchers, benford_stats)
     doc.add_page_break()
 
     print("    Page 2 — Methodology")
     _page2(doc)
 
     print("    Page 3 — Analytical Charts")
-    _page3_charts(doc, df_invoices, selected_invoices, benford_stats)
+    _page3_charts(doc, df_vouchers, selected_vouchers, benford_stats)
 
     print("    Page 4 — Payment Distribution & Timeline")
     _page4_distributions(doc, df)

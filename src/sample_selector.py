@@ -11,10 +11,10 @@ WEIGHTS = {
     'benford_score':     0.05,
 }
 
-# Weights for invoice-level rollup
-_INV_W_MAX   = 0.60
-_INV_W_MEAN  = 0.25
-_INV_W_FLAGS = 0.15
+# Weights for voucher-level rollup
+_VCH_W_MAX   = 0.60
+_VCH_W_MEAN  = 0.25
+_VCH_W_FLAGS = 0.15
 
 FLAG_COLS = [
     'is_round_number',
@@ -124,7 +124,7 @@ def _build_reason(row):
 
 
 # ---------------------------------------------------------------------------
-# Invoice-level rollup
+# Voucher-level rollup
 # ---------------------------------------------------------------------------
 
 def _ml_consensus_flag(df):
@@ -137,23 +137,13 @@ def _ml_consensus_flag(df):
     return flags.sum(axis=1)
 
 
-def _make_invoice_key(df):
-    """Vendor ID + Invoice Number; fall back to Voucher ID when Invoice Number is blank."""
-    inv_num = df['Invoice Number'].astype(str).str.strip()
-    blank = inv_num.isin(['', 'nan', 'NaN', 'None'])
-    key = df['Vendor ID'].astype(str) + '||' + inv_num
-    key[blank] = '__VOUCHER__' + df.loc[blank, 'Voucher ID'].astype(str)
-    return key
-
-
-def _rollup_invoices(df):
+def _rollup_vouchers(df):
     """
-    Group line-scored rows by invoice and compute invoice-level fields.
-    Returns (df_invoices, df_with_keys) where df_with_keys has _invoice_key,
-    _line_reason, and ML_Consensus_Flag columns added.
+    Group line-scored rows by Voucher ID and compute voucher-level fields.
+    Returns (df_vouchers, df_with_helpers) where df_with_helpers has
+    _line_reason and ML_Consensus_Flag columns added.
     """
     df = df.copy()
-    df['_invoice_key'] = _make_invoice_key(df)
     df['_line_reason'] = df.apply(_build_reason, axis=1)
     df['ML_Consensus_Flag'] = _ml_consensus_flag(df)
 
@@ -161,7 +151,7 @@ def _rollup_invoices(df):
     n_flags = len(flag_present)
 
     records = []
-    for key, grp in df.groupby('_invoice_key', sort=False):
+    for voucher_id, grp in df.groupby('Voucher ID', sort=False):
         line_count = len(grp)
         flag_count = int(grp[flag_present].clip(0, 1).values.sum()) if flag_present else 0
         total_possible = n_flags * line_count
@@ -170,58 +160,65 @@ def _rollup_invoices(df):
         max_score  = float(grp['risk_score'].max())
         mean_score = float(grp['risk_score'].mean())
 
-        # Single-line invoice: score equals the line score exactly
+        # Single-line voucher: score equals the line score exactly
         if line_count == 1:
-            inv_score = max_score
+            vch_score = max_score
         else:
-            inv_score = (
-                _INV_W_MAX   * max_score +
-                _INV_W_MEAN  * mean_score +
-                _INV_W_FLAGS * flag_density
+            vch_score = (
+                _VCH_W_MAX   * max_score +
+                _VCH_W_MEAN  * mean_score +
+                _VCH_W_FLAGS * flag_density
             )
 
-        # Deduplicated reason codes prefixed with Voucher ID so auditor knows which line triggered each
+        # Reason codes: no prefix for single-line vouchers;
+        # prefix with Account Code for multi-line so auditor knows which line triggered each reason
         reasons = []
         seen = set()
         for _, row in grp.iterrows():
-            voucher = str(row.get('Voucher ID', ''))
             for part in row['_line_reason'].split('; '):
                 part = part.strip()
-                if part:
-                    entry = f"[{voucher}] {part}"
-                    if entry not in seen:
-                        seen.add(entry)
-                        reasons.append(entry)
+                if not part:
+                    continue
+                if line_count > 1:
+                    acct = str(row.get('Account Code', ''))
+                    entry = f"[{acct}] {part}" if acct else part
+                else:
+                    entry = part
+                if entry not in seen:
+                    seen.add(entry)
+                    reasons.append(entry)
 
         top_line = grp.loc[grp['risk_score'].idxmax()]
 
-        # Use Voucher ID as the invoice identifier when Invoice Number is blank
-        inv_num = str(top_line.get('Invoice Number', ''))
-        if inv_num.strip() in ('', 'nan', 'NaN', 'None'):
-            inv_num = str(top_line.get('Voucher ID', ''))
+        # Collect all distinct, non-blank Invoice Numbers linked to this voucher
+        inv_nums = (
+            grp['Invoice Number'].astype(str).str.strip()
+            .pipe(lambda s: s[~s.isin(['', 'nan', 'NaN', 'None'])])
+            .unique().tolist()
+        )
 
         records.append({
-            '_invoice_key':             key,
+            'Voucher ID':               str(voucher_id),
             'Vendor ID':                top_line.get('Vendor ID', ''),
             'Vendor Name':              top_line.get('Vendor Name', ''),
-            'Invoice Number':           inv_num,
-            'invoice_line_count':       line_count,
-            'invoice_max_score':        round(max_score, 4),
-            'invoice_mean_score':       round(mean_score, 4),
-            'invoice_flag_count':       flag_count,
-            'invoice_any_ml_consensus': int((grp['ML_Consensus_Flag'] >= 2).any()),
-            'invoice_score':            round(inv_score, 4),
-            'invoice_reason_codes':     ' | '.join(reasons),
+            'Invoice Number(s)':        ', '.join(inv_nums),
+            'voucher_line_count':       line_count,
+            'voucher_max_score':        round(max_score, 4),
+            'voucher_mean_score':       round(mean_score, 4),
+            'voucher_flag_count':       flag_count,
+            'voucher_any_ml_consensus': int((grp['ML_Consensus_Flag'] >= 2).any()),
+            'voucher_score':            round(vch_score, 4),
+            'voucher_reason_codes':     ' | '.join(reasons),
         })
 
-    df_inv = pd.DataFrame(records)
-    df_inv = df_inv.sort_values('invoice_score', ascending=False).reset_index(drop=True)
-    return df_inv, df
+    df_vch = pd.DataFrame(records)
+    df_vch = df_vch.sort_values('voucher_score', ascending=False).reset_index(drop=True)
+    return df_vch, df
 
 
-def _assign_risk_tier(df_inv):
+def _assign_risk_tier(df_vch):
     """Assign HIGH / MEDIUM / LOW: top 5% = HIGH, next 15% = MEDIUM, rest = LOW."""
-    scores = df_inv['invoice_score']
+    scores = df_vch['voucher_score']
     high_cut = scores.quantile(0.95)
     med_cut  = scores.quantile(0.80)
 
@@ -232,16 +229,16 @@ def _assign_risk_tier(df_inv):
             return 'MEDIUM'
         return 'LOW'
 
-    df_inv = df_inv.copy()
-    df_inv['invoice_risk_tier'] = scores.apply(_tier)
-    return df_inv
+    df_vch = df_vch.copy()
+    df_vch['voucher_risk_tier'] = scores.apply(_tier)
+    return df_vch
 
 
-def _stratified_sample(df_inv, n_samples):
+def _stratified_sample(df_vch, n_samples):
     """All HIGH mandatory (capped at n_samples); proportional MEDIUM (~75% of remainder); random LOW baseline."""
-    high   = df_inv[df_inv['invoice_risk_tier'] == 'HIGH']
-    medium = df_inv[df_inv['invoice_risk_tier'] == 'MEDIUM']
-    low    = df_inv[df_inv['invoice_risk_tier'] == 'LOW']
+    high   = df_vch[df_vch['voucher_risk_tier'] == 'HIGH']
+    medium = df_vch[df_vch['voucher_risk_tier'] == 'MEDIUM']
+    low    = df_vch[df_vch['voucher_risk_tier'] == 'LOW']
 
     # If HIGH alone fills or exceeds the quota, return only the top n_samples from HIGH
     if len(high) >= n_samples:
@@ -260,7 +257,7 @@ def _stratified_sample(df_inv, n_samples):
         selected.append(low.sample(n=n_low, random_state=42))
 
     result = pd.concat(selected, ignore_index=True)
-    return result.sort_values('invoice_score', ascending=False).reset_index(drop=True)
+    return result.sort_values('voucher_score', ascending=False).reset_index(drop=True)
 
 
 # ---------------------------------------------------------------------------
@@ -269,38 +266,38 @@ def _stratified_sample(df_inv, n_samples):
 
 def select_samples(df, n_samples=25):
     """
-    Score all rows, roll up to invoice level, and return the top n_samples invoices.
+    Score all rows, roll up to payment voucher level, and select the top n_samples vouchers.
 
     Returns
     -------
-    df_scored         : full row-level dataframe with risk_score and helper columns
-    df_invoices       : invoice-level rollup, all invoices sorted by invoice_score desc
-    selected_invoices : top n_samples invoices with Sample #, Sample_Rationale columns
+    df_scored        : full row-level dataframe with risk_score and helper columns
+    df_vouchers      : voucher-level rollup, all vouchers sorted by voucher_score desc
+    selected_vouchers: top n_samples vouchers with Sample #, Sample_Rationale columns
     """
     df = compute_risk_scores(df)
     df = df.sort_values('risk_score', ascending=False).reset_index(drop=True)
 
-    print("  Rolling up to invoice level...")
-    df_invoices, df = _rollup_invoices(df)
-    df_invoices = _assign_risk_tier(df_invoices)
+    print("  Rolling up to payment voucher level...")
+    df_vouchers, df = _rollup_vouchers(df)
+    df_vouchers = _assign_risk_tier(df_vouchers)
 
-    n = min(n_samples, len(df_invoices))
-    selected = _stratified_sample(df_invoices, n)
+    n = min(n_samples, len(df_vouchers))
+    selected = _stratified_sample(df_vouchers, n)
     selected = selected.copy()
     selected.insert(0, 'Sample #', range(1, len(selected) + 1))
-    selected['Sample_Rationale'] = selected['invoice_risk_tier'].map({
-        'HIGH':   'Mandatory — top 5% invoice risk score',
+    selected['Sample_Rationale'] = selected['voucher_risk_tier'].map({
+        'HIGH':   'Mandatory — top 5% voucher risk score',
         'MEDIUM': 'Proportional selection — elevated risk tier',
-        'LOW':    'Baseline — random selection from lower-risk invoices',
+        'LOW':    'Baseline — random selection from lower-risk vouchers',
     })
 
-    n_high = int((df_invoices['invoice_risk_tier'] == 'HIGH').sum())
-    n_med  = int((df_invoices['invoice_risk_tier'] == 'MEDIUM').sum())
-    n_low  = int((df_invoices['invoice_risk_tier'] == 'LOW').sum())
-    print(f"  {len(df_invoices):,} invoices from {len(df):,} line items "
+    n_high = int((df_vouchers['voucher_risk_tier'] == 'HIGH').sum())
+    n_med  = int((df_vouchers['voucher_risk_tier'] == 'MEDIUM').sum())
+    n_low  = int((df_vouchers['voucher_risk_tier'] == 'LOW').sum())
+    print(f"  {len(df_vouchers):,} payment vouchers from {len(df):,} line items "
           f"(HIGH: {n_high}, MEDIUM: {n_med}, LOW: {n_low}).")
-    print(f"  Selected {len(selected)} invoices "
-          f"(scores: {selected['invoice_score'].max():.3f} – "
-          f"{selected['invoice_score'].min():.3f}).")
+    print(f"  Selected {len(selected)} vouchers "
+          f"(scores: {selected['voucher_score'].max():.3f} – "
+          f"{selected['voucher_score'].min():.3f}).")
 
-    return df, df_invoices, selected
+    return df, df_vouchers, selected

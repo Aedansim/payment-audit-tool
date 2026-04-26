@@ -29,8 +29,8 @@ df = load_transactions('data/<your_file>.xlsx')
 df, feats = engineer_features(df)
 df, summary, stats = benfords_law.analyze(df)
 df = run_ensemble(df, feats)
-df_scored, selected = select_samples(df)
-print(selected[['Sample #','Vendor Name','risk_score','Selection Reasons']].head())
+df_scored, df_vouchers, selected_vouchers = select_samples(df)
+print(selected_vouchers[['Sample #','Vendor Name','voucher_score','voucher_reason_codes']].head())
 "
 
 # Git workflow
@@ -59,9 +59,9 @@ load_transactions()      → df (raw)
 engineer_features()      → df + feature columns, ml_feature_names[]
 benfords_law.analyze()   → df + benford_* columns, summary DataFrame, stats dict
 run_ensemble()           → df + if_score, lof_score, zscore_score columns
-select_samples()         → df_scored (full, sorted), selected (top-N with reasons)
+select_samples()         → df_scored (line-level), df_vouchers (voucher rollup), selected_vouchers (top-N)
     ↓
-export_excel()           — 3-tab openpyxl workbook
+export_excel()           — 6-tab openpyxl workbook (voucher-level selection)
 export_word_report()     — 6-page python-docx report with embedded matplotlib charts
 ```
 
@@ -99,9 +99,9 @@ Each landscape section is created by `_set_landscape()` via `doc.add_section()`.
 | `feature_engineering` | `engineer_features(df) → (df, ml_features[])` |
 | `benfords_law` | `analyze(df) → (df, summary_df, stats_dict)` |
 | `ml_models` | `run_ensemble(df, ml_features) → df` |
-| `sample_selector` | `select_samples(df, n_samples) → (df_scored, selected_df)` |
-| `excel_exporter` | `export_excel(df_scored, selected, summary, stats, path)` |
-| `report_generator` | `export_word_report(df_scored, selected, stats, path)` |
+| `sample_selector` | `select_samples(df, n_samples) → (df_scored, df_vouchers, selected_vouchers)` |
+| `excel_exporter` | `export_excel(df_scored, df_vouchers, selected_vouchers, summary, stats, path)` |
+| `report_generator` | `export_word_report(df_scored, df_vouchers, selected_vouchers, stats, path)` |
 
 ### Required input columns
 
