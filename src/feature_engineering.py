@@ -113,9 +113,7 @@ def engineer_features(df):
     """
     print("  Computing amount z-scores...")
     df['amount_log'] = np.log1p(df[AMOUNT_COL])
-    df['amount_zscore_overall'] = stats.zscore(df[AMOUNT_COL].fillna(0))
     df['amount_zscore_vendor'] = _group_zscore(df, AMOUNT_COL, 'Vendor ID')
-    df['amount_zscore_account'] = _group_zscore(df, AMOUNT_COL, 'Account Code')
     df['amount_zscore_costcentre'] = _group_zscore(df, AMOUNT_COL, 'Cost Centre')
 
     print("  Computing rule-based flags...")

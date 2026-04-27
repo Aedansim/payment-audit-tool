@@ -751,91 +751,98 @@ def _page5_vendors(doc, df):
 # Page 6 — Feature Reference Table (landscape)
 # ---------------------------------------------------------------------------
 
-FEATURE_TABLE_DATA = [
+# Columns: Feature | What It Measures | Threshold for Flagging | ML Models | Why It Matters
+# ML Models shows which of the three ML scoring components each feature feeds into:
+#   IF  = Isolation Forest   LOF = Local Outlier Factor   Z   = Statistical Z-Score
+ML_FEATURE_TABLE_DATA = [
     (
         "Amount vs. vendor average",
         "How much the payment amount differs from what this vendor is typically paid",
         "Z-score > 2.0",
+        "IF, LOF, Z-score",
         "Unusually large payments to a vendor may indicate over-billing or fictitious invoices",
     ),
     (
         "Amount vs. cost centre average",
         "How much the payment amount differs from the typical amounts processed in that cost centre",
         "Z-score > 2.0",
+        "IF, LOF, Z-score",
         "Helps detect amounts that are out of place for the department, suggesting possible miscoding or inflated claims",
     ),
     (
         "Round number",
         "Whether the payment amount ends in 00, 000, or 0,000",
         "Exactly divisible by 100",
+        "IF, LOF",
         "Genuine invoice amounts rarely end in round numbers; manually chosen or fictitious amounts often do",
     ),
     (
         "Non-working day",
         "Whether the invoice is dated on a Saturday, Sunday, or Singapore public holiday",
         "Sat, Sun, or SG public holiday (holidays library)",
+        "IF, LOF",
         "Payments authorised outside business hours may bypass the normal multi-person review and approval process",
     ),
     (
         "Month-end",
         "Whether the invoice is dated in the last 3 calendar days of the month",
         "Last 3 calendar days of month",
+        "IF, LOF",
         "May indicate rushed processing to meet budget targets or period-end financial reporting cut-offs",
     ),
     (
         "Near approval threshold",
         "Whether the amount falls within 5% below a common approval limit",
         "Within 5% below SGD 1K / 5K / 10K / 50K / 100K",
+        "IF, LOF",
         "A well-documented technique ('structuring') to avoid triggering higher-level approval requirements",
     ),
     (
         "Individual payee",
         "Whether the Vendor ID matches the Singapore NRIC/FIN format (one letter, 7 digits, one letter)",
         "Regex: ^[A-Z][0-9]{7}[A-Z]$",
+        "IF, LOF",
         "Payments to individuals carry higher inherent risk; they bypass standard vendor vetting and procurement controls",
     ),
     (
         "Processing time",
         "Number of calendar days between Invoice Date and Voucher Accounting Date",
-        "Outside 5th–95th percentile of dataset",
+        "Absolute z-score > 2.5",
+        "IF, LOF",
         "Very fast processing may indicate bypassed controls; unusually long delays may indicate backdating",
     ),
     (
         "Description length",
         "Character length of the Voucher Line Description field",
         "Absolute z-score > 2.5",
+        "IF, LOF",
         "Very short descriptions may indicate incomplete entries; very long ones may indicate unusual or fabricated narrative",
     ),
     (
         "Irregular repeated amount",
         "Same vendor paid the same amount more than twice, with no regular monthly/quarterly/annual schedule",
         "> 2 occurrences with no detected recurring cycle",
+        "IF, LOF",
         "May indicate duplicated or split payments that were structured to avoid detection",
     ),
+]
+
+# Features that contribute to scoring but do not feed into any ML model.
+BENFORD_FEATURE_TABLE_DATA = [
     (
         "Benford's Law first digit",
         "Whether the payment amount's first digit deviates significantly from Benford's expected frequency",
         "First digit among the top-3 most deviant digits; non-recurring payments only",
+        "None — Benford's Law analysis only (5% of composite score)",
         "Systematic deviation may indicate manually constructed or manipulated amounts",
     ),
 ]
 
 
-def _page6_feature_table(doc):
-    section = doc.add_section()
-    _set_landscape(section)
-
-    _heading(doc, "Feature Reference Table", level=1)
-    _body(doc,
-          "The table below lists each analytical feature used by the tool, the threshold that "
-          "determines whether a transaction is flagged, and the audit rationale.",
-          size=9)
-    doc.add_paragraph()
-
-    headers    = ["Feature", "What It Measures", "Threshold for Flagging", "Why It Matters"]
-    col_widths = [Inches(1.8), Inches(2.4), Inches(2.0), Inches(4.3)]
-
-    tbl = doc.add_table(rows=1 + len(FEATURE_TABLE_DATA), cols=4)
+def _render_feature_table(doc, data, col_widths):
+    """Render a 5-column feature table (Feature | Measures | Threshold | ML Models | Why)."""
+    headers = ["Feature", "What It Measures", "Threshold for Flagging", "ML Models", "Why It Matters"]
+    tbl = doc.add_table(rows=1 + len(data), cols=5)
     tbl.style = 'Table Grid'
 
     hdr = tbl.rows[0]
@@ -848,7 +855,7 @@ def _page6_feature_table(doc):
         _shade_cell(cell, "1F3864")
         cell.width = width
 
-    for row_idx, row_data in enumerate(FEATURE_TABLE_DATA, start=1):
+    for row_idx, row_data in enumerate(data, start=1):
         row   = tbl.rows[row_idx]
         shade = "F2F6FC" if row_idx % 2 == 0 else "FFFFFF"
         for col_idx, (value, width) in enumerate(zip(row_data, col_widths)):
@@ -857,6 +864,41 @@ def _page6_feature_table(doc):
             cell.paragraphs[0].runs[0].font.size = Pt(7.5)
             _shade_cell(cell, shade)
             cell.width = width
+
+
+def _page6_feature_table(doc):
+    section = doc.add_section()
+    _set_landscape(section)
+
+    _heading(doc, "Feature Reference Table", level=1)
+    _body(doc,
+          "The tables below list each analytical feature, the threshold that determines whether a "
+          "transaction is flagged, which ML scoring models the feature feeds into, and the audit "
+          "rationale. ML Models: IF = Isolation Forest, LOF = Local Outlier Factor, "
+          "Z-score = Statistical Z-Score Analysis.",
+          size=9)
+    doc.add_paragraph()
+
+    col_widths = [Inches(1.6), Inches(2.1), Inches(1.8), Inches(1.2), Inches(3.8)]
+
+    _heading(doc, "Features Used in Machine Learning Models", level=2)
+    _body(doc,
+          "All ten features below are normalised via RobustScaler and fed into the ML models "
+          "before scoring. Amount z-scores additionally drive the Statistical Z-Score component "
+          "directly.",
+          size=9)
+    doc.add_paragraph()
+    _render_feature_table(doc, ML_FEATURE_TABLE_DATA, col_widths)
+
+    doc.add_paragraph()
+
+    _heading(doc, "Features Outside Machine Learning Models", level=2)
+    _body(doc,
+          "The feature below is computed by an independent method and contributes 5% of the "
+          "composite risk score separately from the ML models.",
+          size=9)
+    doc.add_paragraph()
+    _render_feature_table(doc, BENFORD_FEATURE_TABLE_DATA, col_widths)
 
     doc.add_paragraph()
     _body(doc,

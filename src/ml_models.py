@@ -63,8 +63,7 @@ def run_ensemble(df, ml_features, random_state=42):
     if z_cols:
         z_max = df[z_cols].abs().max(axis=1)
     else:
-        z_max = df['amount_zscore_overall'].abs() if 'amount_zscore_overall' in df.columns \
-            else pd.Series(0.0, index=df.index)
+        z_max = pd.Series(0.0, index=df.index)
     df['zscore_score'] = _normalise(z_max.values)
 
     print("  ML scoring complete.")
