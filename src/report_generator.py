@@ -673,6 +673,15 @@ def _page2(doc):
         "anomalies that closely mimic normal payment patterns may not be detected. Auditors "
         "should not rely on the tool to detect fraud but should exercise professional judgement "
         "in investigating unusual transactions identified.",
+        "Declared component weights are approximate: the five component weights describe the "
+        "intended relative importance of each analytical method, not precisely isolated "
+        "statistical contributions. Features shared across components — amount z-scores and "
+        "rule flags appear both in their dedicated scoring components and as inputs to Isolation "
+        "Forest and LOF — carry marginally more effective influence than their labelled "
+        "percentage alone suggests. This does not affect the tool's output in practice: the "
+        "tool produces a relative ranking of vouchers within the dataset, and transactions that "
+        "are genuinely anomalous across multiple dimensions will consistently rank above those "
+        "that are not, regardless of the precise effective weight of any individual feature.",
     ]
     for caveat in caveats:
         _bullet(doc, caveat, size=10)

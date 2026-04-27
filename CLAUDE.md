@@ -96,7 +96,7 @@ export_word_report()     — 6-page python-docx report with embedded matplotlib 
 
 **Word report — 6-page structure** (`report_generator`):
 - Page 1 (portrait): Executive Summary — dataset overview table + findings bullets
-- Page 2 (portrait): Methodology — comprehensive audit-grade standalone document covering: four-stage pipeline overview (feature engineering → scoring → voucher rollup → sample selection); each of the five analytical methods with caveats; exact line-level scoring formula (`0.30×IF + 0.25×LOF + 0.25×Z-score + 0.15×rule_flags + 0.05×Benford`) and weight rationale table; Benford suppression rule; voucher rollup formula (`0.60×max + 0.25×mean + 0.15×flag_density`); ML consensus flag explanation; risk tier percentile cutoffs; stratified sample selection logic; six transparency caveats
+- Page 2 (portrait): Methodology — comprehensive audit-grade standalone document covering: four-stage pipeline overview (feature engineering → scoring → voucher rollup → sample selection); each of the five analytical methods with caveats; exact line-level scoring formula (`0.30×IF + 0.25×LOF + 0.25×Z-score + 0.15×rule_flags + 0.05×Benford`) and weight rationale table; Benford suppression rule; voucher rollup formula (`0.60×max + 0.25×mean + 0.15×flag_density`); ML consensus flag explanation; risk tier percentile cutoffs; stratified sample selection logic; seven transparency caveats (the 7th notes that declared component weights are approximate because features shared across components carry marginally more effective influence than their labelled percentage alone suggests, and explains why this does not affect the relative ranking output)
 - Page 3 (landscape): Analytical Charts — Benford's Law distribution + voucher risk score histogram, side by side in a borderless 2-column table
 - Page 4 (landscape): Payment Distribution & Timeline — amount distribution (log scale) + monthly timeline (dual-axis bar/line), stacked full-width
 - Page 5 (landscape): Vendor Analysis — top 10 vendors by transaction count and by total amount
@@ -130,6 +130,16 @@ The tool validates exactly these 10 column names on load (raises `ValueError` if
 
 `Vendor Name`, `Vendor ID`, `Cost Centre`, `Account Code`, `Invoice Date`, `Voucher Accounting Date`, `Invoice Number`, `Voucher ID`, `Voucher Line Description`, `Payment Voucher Amount (SGD, Excluding GST)`
 
+### Feature overlap — intentional design decision (April 2026)
+
+`amount_zscore_vendor` and `amount_zscore_costcentre` feed into three components: the dedicated Z-score component (25% weight), and also the IF and LOF feature matrices (as two of ~10 inputs). The six rule-based flags feed into two components: the dedicated rule_flags_score (15% weight), and also the IF and LOF feature matrices. This means those features carry marginally more effective weight than their labelled percentages suggest.
+
+This is documented as Caveat 7 in the Word report methodology page. It is **not a design flaw**: the overlap is a byproduct of ensemble cross-method reinforcement — transactions anomalous on these signals consistently rank above those that are not, which is the tool's objective. Removing these features from the IF/LOF matrix was considered and rejected because it would weaken detection coverage and the overlap effect is attenuated by the multi-dimensional nature of those models.
+
+The `ML_Consensus_Flag` threshold of 0.65 on normalised scores was reviewed in April 2026. Switching to `sklearn.predict()` at `contamination=0.05` (top 5% boundary) was evaluated using `benchmark_comparison.py` and found to worsen Cohen's d (2.834→2.551) and recall (14→13) due to weight reallocation deflating single-line voucher scores. The 0.65 threshold is retained. If audit defensibility of the threshold becomes a concern, use `predict()` for the binary display flag only without changing the voucher formula.
+
+`amount_zscore_overall` and `amount_zscore_account` were removed from `feature_engineering.py` in April 2026 — both were computed but never referenced in scoring, reason codes, or ML models. The dead `amount_zscore_overall` fallback branch in `ml_models.py` was also removed.
+
 ### Known design limitation
 
 The payments listing contains multiple line items per payment voucher (same `Voucher ID`, different `Account Code` / `Cost Centre`). The tool's feature engineering and Benford analysis operate at the individual line level, not at the voucher total. This means:
@@ -143,7 +153,8 @@ This is intentional: voucher-level aggregation before scoring would lose line-le
 
 `data/` — contains user transaction files (gitignored by `data/*.xlsx`, `data/*.csv`, etc.).  
 `output/` — generated artefacts (gitignored by `output/*`). Only `data/.gitkeep` and `output/.gitkeep` are tracked.  
-`benchmark.py` — committed to the repo as a development/QA tool. It is not part of the production pipeline.
+`benchmark.py` — committed to the repo as a development/QA tool. It is not part of the production pipeline.  
+`benchmark_comparison.py` — committed as a QA tool for comparing two pipeline configurations side-by-side. Runs both pipelines against the same synthetic dataset and prints recall, precision, Cohen's d, ML consensus flag distribution, and score statistics. No src/ files are modified by the script; all modified logic is defined inline. Use this when evaluating proposed changes to the scoring formula or ML thresholds before deciding whether to adopt them.
 
 ## Accuracy benchmark (synthetic test, April 2025 — updated)
 
