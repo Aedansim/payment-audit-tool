@@ -49,8 +49,9 @@ def _heading(doc, text, level=1):
 
 def _body(doc, text, bold=False, italic=False, size=10):
     p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
     run = p.add_run(text)
-    run.font.size = Pt(size)
+    run.font.size = Pt(size + 2)
     run.bold = bold
     run.italic = italic
     run.font.color.rgb = GREY
@@ -59,20 +60,22 @@ def _body(doc, text, bold=False, italic=False, size=10):
 
 def _bullet(doc, text, size=10):
     p = doc.add_paragraph(style='List Bullet')
+    p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
     run = p.add_run(text)
-    run.font.size = Pt(size)
+    run.font.size = Pt(size + 2)
     run.font.color.rgb = GREY
     return p
 
 
 def _coloured_para(doc, label, value, colour=NAVY, size=11):
     p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
     r1 = p.add_run(label + ": ")
     r1.bold = True
-    r1.font.size = Pt(size)
+    r1.font.size = Pt(size + 2)
     r1.font.color.rgb = NAVY
     r2 = p.add_run(str(value))
-    r2.font.size = Pt(size)
+    r2.font.size = Pt(size + 2)
     r2.font.color.rgb = colour
     return p
 
@@ -319,7 +322,8 @@ def _page1(doc, df, df_vouchers, selected_vouchers, benford_stats):
         tbl.rows[i].cells[1].text = value
         tbl.rows[i].cells[0].paragraphs[0].runs[0].bold = True
         for cell in tbl.rows[i].cells:
-            cell.paragraphs[0].runs[0].font.size = Pt(10)
+            cell.paragraphs[0].runs[0].font.size = Pt(12)
+            cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
             if i % 2 == 0:
                 _shade_cell(cell, "F2F6FC")
 
@@ -356,11 +360,12 @@ def _page1(doc, df, df_vouchers, selected_vouchers, benford_stats):
 
     for label, value in findings:
         p = doc.add_paragraph(style='List Bullet')
+        p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         r1 = p.add_run(f"{label}: ")
         r1.bold = True
-        r1.font.size = Pt(10)
+        r1.font.size = Pt(12)
         r2 = p.add_run(value)
-        r2.font.size = Pt(10)
+        r2.font.size = Pt(12)
 
     doc.add_paragraph()
     _body(doc,
@@ -562,8 +567,9 @@ def _page2(doc):
         cell = hdr.cells[i]
         cell.text = label
         cell.paragraphs[0].runs[0].bold = True
-        cell.paragraphs[0].runs[0].font.size = Pt(9)
+        cell.paragraphs[0].runs[0].font.size = Pt(11)
         cell.paragraphs[0].runs[0].font.color.rgb = WHITE
+        cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         _shade_cell(cell, "1F3864")
         cell.width = col_widths_wt[i]
 
@@ -573,7 +579,8 @@ def _page2(doc):
         for col_idx, (value, width) in enumerate(zip([method, weight, rationale], col_widths_wt)):
             cell = row.cells[col_idx]
             cell.text = value
-            cell.paragraphs[0].runs[0].font.size = Pt(9)
+            cell.paragraphs[0].runs[0].font.size = Pt(11)
+            cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
             _shade_cell(cell, shade)
             cell.width = width
 
@@ -867,8 +874,9 @@ def _render_feature_table(doc, data, col_widths):
         cell = hdr.cells[i]
         cell.text = header
         cell.paragraphs[0].runs[0].bold = True
-        cell.paragraphs[0].runs[0].font.size = Pt(8)
+        cell.paragraphs[0].runs[0].font.size = Pt(10)
         cell.paragraphs[0].runs[0].font.color.rgb = WHITE
+        cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         _shade_cell(cell, "1F3864")
         cell.width = width
 
@@ -878,7 +886,8 @@ def _render_feature_table(doc, data, col_widths):
         for col_idx, (value, width) in enumerate(zip(row_data, col_widths)):
             cell = row.cells[col_idx]
             cell.text = value
-            cell.paragraphs[0].runs[0].font.size = Pt(7.5)
+            cell.paragraphs[0].runs[0].font.size = Pt(9.5)
+            cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
             _shade_cell(cell, shade)
             cell.width = width
 
@@ -941,7 +950,7 @@ def export_word_report(df, df_vouchers, selected_vouchers, benford_stats, output
     section0.bottom_margin = Cm(2.5)
 
     style = doc.styles['Normal']
-    style.font.size = Pt(10)
+    style.font.size = Pt(12)
     style.font.name = 'Calibri'
 
     print("    Page 1 — Executive Summary")
