@@ -268,12 +268,23 @@ def select_samples(df, n_samples=25):
     """
     Score all rows, roll up to payment voucher level, and select the top n_samples vouchers.
 
+    Parameters
+    ----------
+    n_samples : int, default 25
+        Number of vouchers to include in the audit sample. Must be a positive integer.
+        Change SAMPLE_SIZE in the notebook's Step 1 cell to override.
+
     Returns
     -------
     df_scored        : full row-level dataframe with risk_score and helper columns
     df_vouchers      : voucher-level rollup, all vouchers sorted by voucher_score desc
     selected_vouchers: top n_samples vouchers with Sample #, Sample_Rationale columns
     """
+    if not isinstance(n_samples, int) or n_samples < 1:
+        raise ValueError(
+            f"n_samples must be a positive integer (got {n_samples!r}). "
+            "Set SAMPLE_SIZE to a whole number ≥ 1 in the notebook's Step 1 cell."
+        )
     df = compute_risk_scores(df)
     df = df.sort_values('risk_score', ascending=False).reset_index(drop=True)
 
