@@ -128,11 +128,11 @@ def _build_reason(row):
 # ---------------------------------------------------------------------------
 
 def _ml_consensus_flag(df):
-    """Count how many of the 3 ML models flag each row as anomalous (score > 0.65)."""
+    """Count how many of the 3 ML models classify each row as anomalous via predict()."""
     flags = pd.DataFrame({
-        'if':  (df.get('if_score',     pd.Series(0.0, index=df.index)) > 0.65).astype(int),
-        'lof': (df.get('lof_score',    pd.Series(0.0, index=df.index)) > 0.65).astype(int),
-        'z':   (df.get('zscore_score', pd.Series(0.0, index=df.index)) > 0.65).astype(int),
+        'if':  df.get('if_anomaly',     pd.Series(0, index=df.index)),
+        'lof': df.get('lof_anomaly',    pd.Series(0, index=df.index)),
+        'z':   df.get('zscore_anomaly', pd.Series(0, index=df.index)),
     })
     return flags.sum(axis=1)
 

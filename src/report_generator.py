@@ -381,7 +381,7 @@ def _page2(doc):
 
     _body(doc,
           "This tool identifies payment transactions that are statistically unusual and therefore "
-          "warrant audit examination. It applies four independent analytical methods simultaneously, "
+          "warrant audit examination. It applies five independent analytical methods simultaneously, "
           "combines their outputs into a composite risk score per transaction line item, rolls up "
           "results to payment voucher level, assigns risk tiers, and selects a stratified sample. "
           "The full process is documented below to support independent verification or recalibration.",
@@ -392,7 +392,7 @@ def _page2(doc):
     _heading(doc, "Stage 1 — Feature Engineering", level=2)
     _body(doc,
           "Before scoring, each transaction line is enriched with computed behavioural features: "
-          "the payment amount normalised against the vendor's historical average (z-score) and "
+          "the payment amount normalised against the vendor's average amount (z-score) and "
           "against the cost centre average; processing days (Invoice Date to Voucher Accounting "
           "Date); whether the invoice date is a non-working day; whether the amount is round; "
           "whether it falls just below a common approval threshold; whether the payee is an "
@@ -407,9 +407,9 @@ def _page2(doc):
     doc.add_paragraph()
 
     # ---- Stage 2 ----
-    _heading(doc, "Stage 2 — Four Independent Analytical Methods", level=2)
+    _heading(doc, "Stage 2 — Five Independent Analytical Methods", level=2)
     _body(doc,
-          "Each transaction line is independently assessed by four methods. Using multiple independent "
+          "Each transaction line is independently assessed by five methods. Using multiple independent "
           "methods reduces both false positives (legitimate transactions wrongly flagged) and false "
           "negatives (genuine anomalies missed). No single method is relied upon alone.",
           size=10)
@@ -466,12 +466,19 @@ def _page2(doc):
     _body(doc,
           "For each vendor and each cost centre, the average payment amount and standard deviation "
           "are computed across all transactions in the dataset. Payments more than 2 standard "
-          "deviations above their group average are flagged — capturing the statistical top 2.5% "
-          "of a normal distribution. This approach is consistent with the objective of analytical "
+          "deviations above their group average are flagged — a threshold derived from the normal "
+          "distribution, where ±2 standard deviations encompasses approximately 95% of values, "
+          "leaving the upper 2.5% as statistical outliers. The 2-standard-deviation threshold is a widely "
+          "applied convention in quantitative analysis. This approach is consistent with the objective of analytical "
           "procedures which requires auditors to identify and investigate significant fluctuations "
           "or relationships that are inconsistent with other relevant information or that differ "
           "from expected values.",
           size=10)
+    _body(doc,
+          "Caveat: Auditors should apply professional judgement in assessing whether flagged amounts "
+          "are significant in context, noting that payment amounts may follow a skewed rather than "
+          "normal distribution, which means the proportion flagged may differ from the theoretical 2.5%.",
+          italic=True, size=10)
     doc.add_paragraph()
 
     _heading(doc, "5. Rule-Based Flags", level=2)
@@ -506,8 +513,8 @@ def _page2(doc):
 
     _body(doc, "Line-Level Composite Risk Score", bold=True, size=10)
     _body(doc,
-          "All five component scores are independently normalised to the range [0, 1] before "
-          "weighting. The weighted composite formula is:",
+          "Each of the five methods produces a score between 0 and 1, where 0 means most normal and 1 means most anomalous. "
+          "These are combined into a single risk score using fixed weights:",
           size=10)
     _body(doc,
           "    risk_score  =  0.30 × IF  +  0.25 × LOF  +  0.25 × Z-score"
@@ -535,9 +542,8 @@ def _page2(doc):
          "positives by comparing each transaction to its most similar counterparts rather than "
          "the full dataset."),
         ("Z-Score Analysis", "25%",
-         "Transparent and directly auditable. Equivalent to standard GAAS analytical procedures. "
-         "High weight because it is statistically rigorous and independently defensible to "
-         "stakeholders and auditors."),
+         "Transparent and directly auditable. "
+         "Higher weight because it is statistically rigorous and independently defensible."),
         ("Rule-Based Flags", "15%",
          "Directly encodes established forensic audit heuristics. Lower weight because rules are "
          "binary (on/off) and each has known limitations; their primary value is confirming and "
@@ -611,9 +617,12 @@ def _page2(doc):
     _heading(doc, "ML Consensus Flag", level=2)
     _body(doc,
           "Each transaction line receives an ML Consensus count: the number of the three ML-based "
-          "methods (Isolation Forest, LOF, Z-score) that independently score that line above 0.65. "
-          "A voucher is marked 'ML Consensus = Yes' if any of its lines is flagged by 2 or more "
-          "of the three methods simultaneously.",
+          "methods that independently classify that line as anomalous using each model's own "
+          "boundary. Isolation Forest and LOF use sklearn's predict() method at "
+          "contamination=0.05, which flags the top 5% of lines as anomalous per model. "
+          "Z-score flags lines where the maximum absolute z-score exceeds 2.0 (2 standard "
+          "deviations). A voucher is marked 'ML Consensus = Yes' if any of its lines is "
+          "classified as anomalous by 2 or more of the three methods simultaneously.",
           size=10)
     _body(doc,
           "The ML Consensus flag does not alter the composite score — it is a corroborating "
@@ -626,18 +635,17 @@ def _page2(doc):
     # ---- Risk tiers and selection ----
     _heading(doc, "Risk Tier Assignment and Sample Selection", level=2)
     _body(doc,
-          "After all voucher scores are computed, tiers are assigned by percentile across the full "
-          "voucher population: HIGH (top 5%), MEDIUM (80th–95th percentile), LOW (bottom 80%). "
+          "After all voucher scores are computed, tiers are assigned based on where each voucher ranks within the dataset: "
+          "the top 5% of scores are flagged HIGH, the next 15% MEDIUM, and the remaining 80% LOW. "
           "Percentile-based tiers ensure the tool adapts to any dataset — HIGH always covers the "
           "most anomalous 5% regardless of absolute score values, which vary by dataset size and "
           "composition.",
           size=10)
     doc.add_paragraph()
     _body(doc,
-          "The final sample is stratified across the three risk tiers, with vouchers classified "
-          "as HIGH, MEDIUM, or LOW based on their percentile rank. The sample composition reflects "
-          "the relative risk level of each tier, ensuring the highest-risk vouchers receive "
-          "proportionally greater coverage.",
+          "The final sample is drawn from all three risk tiers. All HIGH vouchers are selected first. "
+          "The remaining slots are filled proportionally from MEDIUM and LOW tiers, "
+          "ensuring the highest-risk vouchers are always covered.",
           size=10)
     doc.add_paragraph()
 
@@ -647,25 +655,25 @@ def _page2(doc):
           "The following limitations should be understood before acting on the tool's output:",
           size=10)
     caveats = [
-        "Risk prioritisation, not fraud evidence: a high voucher score indicates a statistically "
+        "Risk prioritisation, not fraud evidence — a high voucher score indicates a statistically "
         "unusual transaction that warrants examination. It does not constitute evidence of fraud "
         "or error. All selected vouchers require professional judgement to assess.",
-        "Line-item scope: the tool scores individual transaction lines, not total voucher amounts. "
+        "Line-item scope — the tool scores individual transaction lines, not total voucher amounts. "
         "A large voucher split across many small lines of normal individual amounts may not score "
         "highly even if the total is anomalous. Auditors should review total voucher values "
         "alongside individual line scores.",
-        "Unsupervised models: Isolation Forest and LOF identify outliers relative to the dataset "
+        "Unsupervised models — Isolation Forest and LOF identify outliers relative to the dataset "
         "provided. If the dataset contains pervasive irregularities, both models may treat them "
         "as normal because they resemble the majority. They are most effective when most "
         "transactions are legitimate.",
-        "Benford reliability: the analysis is most meaningful for several hundred or more "
+        "Benford reliability — the analysis is most meaningful for several hundred or more "
         "non-recurring transactions. Small datasets or datasets with narrow amount ranges "
         "produce less reliable Benford results.",
-        "Pre-calibrated weights: component weights and rule thresholds are calibrated for typical "
+        "Pre-calibrated weights — component weights and rule thresholds are calibrated for typical "
         "corporate payment datasets. Unusual compositions (e.g. predominantly recurring payments, "
         "narrow amount bands) may require recalibration. Weights can be overridden by setting "
-        "sample_selector.WEIGHTS before calling select_samples().",
-        "Not a fraud detection tool: the tool has not been trained on confirmed fraud cases "
+        "'sample_selector.WEIGHTS' before calling select_samples().",
+        "Not a fraud detection tool — the tool has not been trained on confirmed fraud cases "
         "from this organisation. It identifies unusual patterns by learning the normal behaviour "
         "of the organisation's data. Real-world performance depends on the nature and prevalence "
         "of anomalies present in the data. Transactions not flagged by the tool should not be "
@@ -673,7 +681,7 @@ def _page2(doc):
         "anomalies that closely mimic normal payment patterns may not be detected. Auditors "
         "should not rely on the tool to detect fraud but should exercise professional judgement "
         "in investigating unusual transactions identified.",
-        "Declared component weights are approximate: the five component weights describe the "
+        "Declared component weights are approximate — the five component weights describe the "
         "intended relative importance of each analytical method, not precisely isolated "
         "statistical contributions. Features shared across components — amount z-scores and "
         "rule flags appear both in their dedicated scoring components and as inputs to Isolation "

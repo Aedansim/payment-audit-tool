@@ -19,8 +19,11 @@ def run_ensemble(df, ml_features, random_state=42):
 
     Adds columns to df:
       if_score        — Isolation Forest anomaly score (0=normal, 1=anomalous)
+      if_anomaly      — 1 if IsolationForest.predict() == -1  (top 5% boundary)
       lof_score       — Local Outlier Factor score (0=normal, 1=anomalous)
+      lof_anomaly     — 1 if LOF.fit_predict() == -1          (top 5% boundary)
       zscore_score    — Statistical z-score signal (0=normal, 1=anomalous)
+      zscore_anomaly  — 1 if max(|vendor_z|, |cc_z|) > 2.0   (2σ boundary)
 
     Returns df with score columns added.
     """
@@ -40,7 +43,8 @@ def run_ensemble(df, ml_features, random_state=42):
     iso.fit(X_scaled)
     # score_samples returns negative values; more negative = more anomalous
     iso_raw = iso.score_samples(X_scaled)
-    df['if_score'] = _normalise(-iso_raw)  # flip sign so higher = more anomalous
+    df['if_score']   = _normalise(-iso_raw)  # flip sign so higher = more anomalous
+    df['if_anomaly'] = (iso.predict(X_scaled) == -1).astype(int)
 
     # --- Local Outlier Factor ---
     print("  Running Local Outlier Factor...")
@@ -51,10 +55,11 @@ def run_ensemble(df, ml_features, random_state=42):
         algorithm='ball_tree',
         n_jobs=-1,
     )
-    lof.fit_predict(X_scaled)
+    lof_pred = lof.fit_predict(X_scaled)
     # negative_outlier_factor_ is negative; more negative = more anomalous
     lof_raw = -lof.negative_outlier_factor_
-    df['lof_score'] = _normalise(lof_raw)
+    df['lof_score']   = _normalise(lof_raw)
+    df['lof_anomaly'] = (lof_pred == -1).astype(int)
 
     # --- Statistical z-score signal ---
     # Take the maximum absolute z-score across vendor and cost-centre dimensions
@@ -64,7 +69,8 @@ def run_ensemble(df, ml_features, random_state=42):
         z_max = df[z_cols].abs().max(axis=1)
     else:
         z_max = pd.Series(0.0, index=df.index)
-    df['zscore_score'] = _normalise(z_max.values)
+    df['zscore_score']   = _normalise(z_max.values)
+    df['zscore_anomaly'] = (z_max > 2.0).astype(int)
 
     print("  ML scoring complete.")
     return df
