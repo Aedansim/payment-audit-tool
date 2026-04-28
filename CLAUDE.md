@@ -105,6 +105,8 @@ export_word_report()     — 6-page python-docx report with embedded matplotlib 
 
 Each landscape section is created by `_set_landscape()` via `doc.add_section()`. Charts are generated as in-memory PNG `BytesIO` objects using matplotlib (Agg backend) and embedded with `run.add_picture()`. Helper `_remove_table_borders()` is used for side-by-side chart layout on page 3. Both `_shade_cell()` and `_remove_table_borders()` use lxml `find(qn(...))` directly — do NOT use `get_or_add_tblPr()` or `get_or_add_tcPr()`, which were removed in python-docx 1.x.
 
+**Typography (updated April 2026):** All paragraph text uses `WD_ALIGN_PARAGRAPH.JUSTIFY`. Font sizes are applied via the three helper functions (`_body`, `_bullet`, `_coloured_para`) which each add 2 to their `size` argument internally — so a caller passing `size=10` produces `Pt(12)` in the document. Explicit `Pt()` calls in table-building code follow this scale: Normal style base = 12 pt; portrait body/bullets = 12 pt; weight-rationale table = 11 pt; landscape sub-descriptions = 11 pt; feature reference table header = 10 pt, rows = 9.5 pt; references footer = 9.5 pt. Table cell paragraphs also carry `JUSTIFY` alignment. Do not revert these sizes to their pre-April-2026 values (body=10, weight table=9, feature header=8, feature rows=7.5).
+
 **Excel workbook — 6-tab structure** (`excel_exporter`):
 - Tab 1 — **Selected Vouchers**: one row per selected voucher, colour-coded by risk tier (HIGH=red, MEDIUM=orange, LOW=yellow). Shows `Voucher ID`, `Vendor Name`, `Invoice Number(s)`, scores, tier, flag count, ML consensus flag, reason codes. No Sample Rationale column.
 - Tab 2 — **Voucher Line Detail**: all transaction lines belonging to selected vouchers, alternating background shading per voucher group, individual line scores and flags visible so auditors can see which line drove selection.
@@ -157,7 +159,7 @@ This is intentional: voucher-level aggregation before scoring would lose line-le
 `benchmark.py` — committed to the repo as a development/QA tool. It is not part of the production pipeline.  
 `benchmark_comparison.py` — committed as a QA tool for comparing two pipeline configurations side-by-side. Runs both pipelines against the same synthetic dataset and prints recall, precision, Cohen's d, ML consensus flag distribution, and score statistics. No src/ files are modified by the script; all modified logic is defined inline. Use this when evaluating proposed changes to the scoring formula or ML thresholds before deciding whether to adopt them.
 
-## Accuracy benchmark (synthetic test, April 2025 — updated)
+## Accuracy benchmark (synthetic test — verified April 2026)
 
 Run with `python benchmark.py`. Tests against 530 synthetic transactions (500 normal + 30 injected anomalies, 5 per type), each as its own single-line voucher. Scores are at voucher level.
 
