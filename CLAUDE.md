@@ -62,6 +62,7 @@ load_transactions()      → df (raw)
 engineer_features()      → df + feature columns, ml_feature_names[]
 benfords_law.analyze()   → df + benford_* columns, summary DataFrame, stats dict
 run_ensemble()           → df + if_score, lof_score, zscore_score columns
+                             + if_anomaly, lof_anomaly, zscore_anomaly (predict() binary flags)
 select_samples()         → df_scored (line-level), df_vouchers (voucher rollup), selected_vouchers (top-N)
     ↓
 export_excel()           — 6-tab openpyxl workbook (voucher-level selection)
@@ -136,7 +137,7 @@ The tool validates exactly these 10 column names on load (raises `ValueError` if
 
 This is documented as Caveat 7 in the Word report methodology page. It is **not a design flaw**: the overlap is a byproduct of ensemble cross-method reinforcement — transactions anomalous on these signals consistently rank above those that are not, which is the tool's objective. Removing these features from the IF/LOF matrix was considered and rejected because it would weaken detection coverage and the overlap effect is attenuated by the multi-dimensional nature of those models.
 
-The `ML_Consensus_Flag` threshold of 0.65 on normalised scores was reviewed in April 2026. Switching to `sklearn.predict()` at `contamination=0.05` (top 5% boundary) was evaluated using `benchmark_comparison.py` and found to worsen Cohen's d (2.834→2.551) and recall (14→13) due to weight reallocation deflating single-line voucher scores. The 0.65 threshold is retained. If audit defensibility of the threshold becomes a concern, use `predict()` for the binary display flag only without changing the voucher formula.
+The `ML_Consensus_Flag` was updated in April 2026 to use `sklearn.predict()` binary flags instead of the former `> 0.65` normalised-score threshold. `run_ensemble()` now emits three binary columns alongside the continuous scores: `if_anomaly` (IsolationForest.predict() == -1, top 5% boundary), `lof_anomaly` (LOF.fit_predict() == -1, top 5% boundary), and `zscore_anomaly` (max absolute z-score > 2.0). `sample_selector._ml_consensus_flag()` reads these columns directly. The change improves audit defensibility by grounding each model's anomaly boundary in its own calibrated contamination parameter rather than an ad-hoc score threshold. The `risk_score` and `voucher_score` formulas are unchanged, so Cohen's d is unaffected. The earlier evaluation (which found that switching predict() into the *voucher scoring formula* worsened Cohen's d 2.834→2.551) remains documented in `benchmark_comparison.py` — that was a different change (adding a 0.10 ML consensus weight to `voucher_score`); the change implemented here uses predict() for the display flag only.
 
 `amount_zscore_overall` and `amount_zscore_account` were removed from `feature_engineering.py` in April 2026 — both were computed but never referenced in scoring, reason codes, or ML models. The dead `amount_zscore_overall` fallback branch in `ml_models.py` was also removed.
 
