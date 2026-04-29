@@ -181,9 +181,9 @@ def build_overview(ws):
          "Min-max across all transactions in run",
          "Sheet: Composite Score", "zscore_score"),
         ("Rule-Based Flags", "15 %", "[0, 1]",
-         "Any of 6 binary rules triggered",
-         "6 hard-coded forensic audit rules",
-         "Fraction of 6 rules triggered (÷6)",
+         "Any of 8 binary rules triggered",
+         "8 hard-coded forensic audit rules",
+         "Fraction of 8 rules triggered (÷8)",
          "Sheet: Composite Score", "rule_flags_score"),
         ("Benford's Law", "5 %", "[0, 1]",
          "First digit among top-3 most deviant digits",
@@ -219,7 +219,7 @@ def build_overview(ws):
                 "  Single-line vouchers:  voucher_score  =  risk_score  (no rollup)", h=16)
     r = blank(ws, r, 4)
     r = body(ws, r,
-             "flag_density = total rule flags across all lines ÷ (6 × number of lines). "
+             "flag_density = total rule flags across all lines ÷ (8 × number of lines). "
              "The 60/25/15 split weights the worst line most heavily, moderates by whether "
              "other lines are also elevated, and adds breadth coverage via flag density.", h=36)
 
@@ -776,7 +776,7 @@ def build_composite(ws):
          "(max(|z_vendor|,|z_cc|) − min) / (max − min)",
          "[0, 1]", "zscore_anomaly: max z > 2.0", "Sheet: Composite Score", "", ""),
         ("rule_flags_score", "15%",
-         "Σ binary_flags / 6",
+         "Σ binary_flags / 8",
          "[0, 1]", "Any rule triggered (score > 0)", "Sheet: Composite Score", "", ""),
         ("benford_score", "5%",
          "deviation(first_digit) / max(deviation)  [suppressed if all others weak]",
