@@ -141,7 +141,7 @@ The tool validates exactly these 10 column names on load (raises `ValueError` if
 
 ### Feature overlap — intentional design decision (April 2026)
 
-`amount_zscore_vendor` and `amount_zscore_costcentre` feed into three components: the dedicated Z-score component (25% weight), and also the IF and LOF feature matrices (as two of ~10 inputs). The six rule-based flags feed into two components: the dedicated rule_flags_score (15% weight), and also the IF and LOF feature matrices. This means those features carry marginally more effective weight than their labelled percentages suggest.
+`amount_zscore_vendor` and `amount_zscore_costcentre` feed into three components: the dedicated Z-score component (25% weight), and also the IF and LOF feature matrices (as two of ~15 inputs). The eight rule-based flags (`is_round_number`, `is_weekend_payment`, `is_month_end`, `near_threshold`, `is_individual_payee`, `same_amount_vendor_irregular`, `is_duplicate`, `is_reversal`) feed into two components: the dedicated rule_flags_score (15% weight), and also the IF and LOF feature matrices. This means those features carry marginally more effective weight than their labelled percentages suggest.
 
 This is documented as Caveat 7 in the Word report methodology page. It is **not a design flaw**: the overlap is a byproduct of ensemble cross-method reinforcement — transactions anomalous on these signals consistently rank above those that are not, which is the tool's objective. Removing these features from the IF/LOF matrix was considered and rejected because it would weaken detection coverage and the overlap effect is attenuated by the multi-dimensional nature of those models.
 

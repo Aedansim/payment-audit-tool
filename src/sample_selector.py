@@ -23,6 +23,8 @@ FLAG_COLS = [
     'near_threshold',
     'is_individual_payee',
     'same_amount_vendor_irregular',
+    'is_duplicate',
+    'is_reversal',
 ]
 
 
@@ -97,6 +99,12 @@ def _build_reason(row):
 
     if row.get('same_amount_vendor_irregular', 0):
         parts.append("Repeated amount for same vendor (irregular schedule)")
+
+    if row.get('is_duplicate', 0):
+        parts.append("Potential duplicate payment (same vendor, invoice, and amount in multiple vouchers)")
+
+    if row.get('is_reversal', 0):
+        parts.append("Reversal or credit note (negative amount)")
 
     pt = row.get('processing_days_zscore', 0)
     if pt > 2.5:

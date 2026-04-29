@@ -41,10 +41,14 @@ def load_transactions(filepath):
     df[AMOUNT_COL] = pd.to_numeric(df[AMOUNT_COL], errors='coerce')
 
     before = len(df)
-    df = df[df[AMOUNT_COL].notna() & (df[AMOUNT_COL] > 0)].reset_index(drop=True)
+    df = df[df[AMOUNT_COL].notna() & (df[AMOUNT_COL] != 0)].reset_index(drop=True)
     removed = before - len(df)
     if removed:
-        print(f"  Note: {removed} rows removed (missing or non-positive amounts).")
+        print(f"  Note: {removed} rows removed (missing or zero amounts).")
+    n_reversals = int((df[AMOUNT_COL] < 0).sum())
+    if n_reversals:
+        print(f"  Note: {n_reversals} reversal/credit note row(s) detected "
+              f"(negative amounts) — retained for analysis.")
 
     print(f"  {len(df):,} transactions loaded successfully.")
     return df

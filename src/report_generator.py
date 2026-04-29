@@ -398,11 +398,16 @@ def _page2(doc):
     _body(doc,
           "Before scoring, each transaction line is enriched with computed behavioural features: "
           "the payment amount normalised against the vendor's average amount (z-score) and "
-          "against the cost centre average; processing days (Invoice Date to Voucher Accounting "
-          "Date); whether the invoice date falls on a weekend; whether the amount is round; "
-          "whether it falls just below a common approval threshold; whether the payee is an "
-          "individual (Singapore NRIC/FIN format); and whether the same amount recurs to the same "
-          "vendor without a regular schedule.",
+          "against the cost centre average; the vendor's billing consistency (coefficient of "
+          "variation across positive amounts — a higher value indicates a vendor whose amounts "
+          "legitimately vary, which would otherwise widen the z-score tolerance and mask "
+          "overpayments); processing days (Invoice Date to Voucher Accounting Date); whether "
+          "the invoice date falls on a weekend; whether the amount is round; whether it falls "
+          "just below a common approval threshold; whether the payee is an individual (Singapore "
+          "NRIC/FIN format); whether the same invoice appears across multiple payment vouchers "
+          "(potential duplicate payment); whether the payment is a negative-amount reversal or "
+          "credit note; and whether the same amount recurs to the same vendor without a regular "
+          "schedule.",
           size=10)
     _body(doc,
           "Caveat: Recurring payments (monthly, quarterly, semi-annual, annual cycles) are detected "
@@ -488,7 +493,7 @@ def _page2(doc):
 
     _heading(doc, "5. Rule-Based Flags", level=2)
     _body(doc,
-          "Six binary rules derived from established forensic audit practice. Each triggers a "
+          "Eight binary rules derived from established forensic audit practice. Each triggers a "
           "flag (1) or not (0) per transaction line:",
           size=10)
     rules = [
@@ -508,6 +513,11 @@ def _page2(doc):
         "vendor registration and procurement controls.",
         "Irregular repeated amount — same amount paid to the same vendor more than twice with no "
         "detected regular monthly/quarterly/annual schedule. May indicate split or duplicate payments.",
+        "Duplicate payment — the same invoice number, vendor, and amount appears across more than "
+        "one distinct payment voucher. Indicates a potential double payment of the same invoice.",
+        "Reversal or credit note — payment amount is negative. Reversals and credit notes are "
+        "legitimate but warrant review, particularly when paired with other risk signals on the "
+        "corresponding original payment.",
     ]
     for rule in rules:
         _bullet(doc, rule, size=10)
@@ -851,6 +861,31 @@ ML_FEATURE_TABLE_DATA = [
         "> 2 occurrences with no detected recurring cycle",
         "IF, LOF",
         "May indicate duplicated or split payments that were structured to avoid detection.",
+    ),
+    (
+        "Vendor billing consistency (CV)",
+        "Coefficient of variation (std ÷ mean) of a vendor's positive payment amounts — how consistently "
+        "they bill. High CV vendors have wide natural variance, making individual overpayments harder to "
+        "detect via z-score alone.",
+        "Continuous (higher = more variable)",
+        "IF, LOF",
+        "Surfaces vendors whose billing amounts vary significantly month-to-month, closing the gap where "
+        "z-score thresholds become permissive due to high natural variance.",
+    ),
+    (
+        "Duplicate payment",
+        "Whether the same invoice number, vendor, and amount appears across more than one distinct "
+        "payment voucher in the dataset.",
+        "Same (Vendor ID, Invoice Number, Amount) in > 1 Voucher ID",
+        "IF, LOF",
+        "Potential double payment of the same invoice — a common control failure or deliberate fraud technique.",
+    ),
+    (
+        "Reversal / credit note",
+        "Whether the payment amount is negative, indicating a reversal or credit note.",
+        "Amount < 0",
+        "IF, LOF",
+        "Reversals paired with other risk signals on the corresponding original payment warrant auditor review.",
     ),
 ]
 

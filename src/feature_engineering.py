@@ -34,6 +34,35 @@ def _is_weekend_payment(date):
     return 1 if date.date().weekday() >= 5 else 0
 
 
+def _detect_duplicates(df):
+    """Flag rows where the same invoice (vendor + invoice number + amount) appears in
+    more than one distinct Voucher ID — a potential double payment."""
+    result = pd.Series(0, index=df.index)
+    has_invoice = df['Invoice Number'].notna() & (
+        df['Invoice Number'].astype(str).str.strip() != ''
+    )
+    if not has_invoice.any():
+        return result
+    relevant = df[has_invoice]
+    key = ['Vendor ID', 'Invoice Number', AMOUNT_COL]
+    cross_voucher = relevant.groupby(key)['Voucher ID'].transform('nunique') > 1
+    result.loc[relevant[cross_voucher].index] = 1
+    return result
+
+
+def _vendor_amount_cv(df):
+    """Per-vendor coefficient of variation on positive amounts only.
+    Higher values indicate vendors whose billing amounts vary more month-to-month,
+    widening the z-score tolerance and potentially masking overpayments."""
+    def _cv(x):
+        x = x.where(x > 0).dropna()
+        if len(x) < 2:
+            return 0.0
+        m = x.mean()
+        return float(x.std(ddof=1) / m) if m > 0 else 0.0
+    return df.groupby('Vendor ID')[AMOUNT_COL].transform(_cv).fillna(0.0)
+
+
 def _round_number(amount):
     if pd.isna(amount) or amount <= 0:
         return 0
@@ -109,11 +138,13 @@ def engineer_features(df):
     Returns (df_with_features, ml_feature_names_after_pruning).
     """
     print("  Computing amount z-scores...")
-    df['amount_log'] = np.log1p(df[AMOUNT_COL])
+    df['amount_log'] = np.log1p(df[AMOUNT_COL].abs())
     df['amount_zscore_vendor'] = _group_zscore(df, AMOUNT_COL, 'Vendor ID')
     df['amount_zscore_costcentre'] = _group_zscore(df, AMOUNT_COL, 'Cost Centre')
 
     print("  Computing rule-based flags...")
+    df['is_reversal'] = (df[AMOUNT_COL] < 0).astype(int)
+    df['is_duplicate'] = _detect_duplicates(df)
     df['is_round_number'] = df[AMOUNT_COL].apply(_round_number)
     df['is_weekend_payment'] = df['Invoice Date'].apply(_is_weekend_payment)
     df['is_month_end'] = df['Invoice Date'].apply(
@@ -143,6 +174,9 @@ def engineer_features(df):
         if desc_std > 0 else 0.0
     )
 
+    print("  Computing vendor billing consistency (coefficient of variation)...")
+    df['vendor_amount_cv'] = _vendor_amount_cv(df)
+
     print("  Detecting recurring payment schedules (this may take a moment)...")
     df['is_recurring_payment'] = _detect_recurring(df).astype(int)
     n_rec = df['is_recurring_payment'].sum()
@@ -159,6 +193,7 @@ def engineer_features(df):
         'amount_zscore_vendor',
         'amount_zscore_costcentre',
         'vendor_txn_count',
+        'vendor_amount_cv',
         'processing_days_zscore',
         'desc_length_zscore',
         'is_round_number',
@@ -167,6 +202,8 @@ def engineer_features(df):
         'is_individual_payee',
         'near_threshold',
         'same_amount_vendor_irregular',
+        'is_duplicate',
+        'is_reversal',
     ]
 
     print("  Checking feature correlations...")

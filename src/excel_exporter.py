@@ -134,8 +134,8 @@ _LINE_SCORE_COLS = {
 _LINE_FLAG_COLS = [
     'is_round_number', 'is_weekend_payment', 'is_month_end',
     'near_threshold', 'is_individual_payee',
-    'same_amount_vendor_irregular', 'is_recurring_payment',
-    'benford_flag', 'processing_days',
+    'same_amount_vendor_irregular', 'is_duplicate', 'is_reversal',
+    'is_recurring_payment', 'benford_flag', 'processing_days',
     'if_anomaly', 'lof_anomaly', 'zscore_anomaly',
 ]
 
@@ -284,8 +284,8 @@ def _sheet_all_lines(wb, df_scored):
     flag_cols  = [c for c in [
         'is_round_number', 'is_weekend_payment', 'is_month_end',
         'near_threshold', 'is_individual_payee',
-        'same_amount_vendor_irregular', 'is_recurring_payment',
-        'benford_flag', 'processing_days',
+        'same_amount_vendor_irregular', 'is_duplicate', 'is_reversal',
+        'is_recurring_payment', 'benford_flag', 'processing_days',
         'if_anomaly', 'lof_anomaly', 'zscore_anomaly',
     ] if c in df_scored.columns]
 

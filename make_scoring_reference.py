@@ -337,8 +337,9 @@ def build_if(ws):
              "Up to 12 features enter the matrix (subject to Spearman correlation pruning "
              "at |corr| > 0.85 within the run):\n"
              "amount_log, amount_zscore_vendor, amount_zscore_costcentre, vendor_txn_count, "
-             "processing_days_zscore, desc_length_zscore, is_round_number, is_weekend_payment, "
-             "is_month_end, is_individual_payee, near_threshold, same_amount_vendor_irregular",
+             "processing_days_zscore, desc_length_zscore, vendor_amount_cv, "
+             "is_round_number, is_weekend_payment, is_month_end, is_individual_payee, "
+             "near_threshold, same_amount_vendor_irregular, is_duplicate, is_reversal",
              h=54)
     r = blank(ws, r)
 
@@ -812,16 +813,18 @@ def build_composite(ws):
     r = section(ws, r, "3. Rule-Based Flags Component Detail")
     r = blank(ws, r, 4)
     r = formula(ws, r,
-                "rule_flags_score  =  (Σ flag_i  for i ∈ 6 rules)  /  6")
+                "rule_flags_score  =  (Σ flag_i  for i ∈ 8 rules)  /  8")
     r = blank(ws, r, 4)
     r = hdr_row(ws, r, ["Flag Column", "Rule", "Condition", "Value", "", "", "", ""])
     flag_rules = [
-        ("is_round_number",           "Round number",           "amount mod 100 == 0",                   "0 or 1"),
-        ("is_weekend_payment",         "Weekend payment",        "Invoice Date is Saturday or Sunday",      "0 or 1"),
-        ("is_month_end",              "Month-end",              "Invoice day ≥ days_in_month − 2",        "0 or 1"),
-        ("near_threshold",            "Near approval threshold","amount within 5% below 1K/5K/10K/50K/100K","0 or 1"),
-        ("is_individual_payee",       "Individual payee",       "Vendor ID matches NRIC/FIN regex",       "0 or 1"),
-        ("same_amount_vendor_irregular","Irregular repeat amount","Same amount to same vendor >2×, no regular cycle","0 or 1"),
+        ("is_round_number",             "Round number",             "amount mod 100 == 0",                         "0 or 1"),
+        ("is_weekend_payment",          "Weekend payment",          "Invoice Date is Saturday or Sunday",          "0 or 1"),
+        ("is_month_end",                "Month-end",                "Invoice day ≥ days_in_month − 2",             "0 or 1"),
+        ("near_threshold",              "Near approval threshold",  "amount within 5% below 1K/5K/10K/50K/100K",  "0 or 1"),
+        ("is_individual_payee",         "Individual payee",         "Vendor ID matches NRIC/FIN regex",            "0 or 1"),
+        ("same_amount_vendor_irregular","Irregular repeat amount",  "Same amount to same vendor >2×, no regular cycle","0 or 1"),
+        ("is_duplicate",                "Duplicate payment",        "Same (Vendor ID, Invoice #, Amount) in >1 Voucher ID","0 or 1"),
+        ("is_reversal",                 "Reversal / credit note",   "Amount < 0",                                  "0 or 1"),
     ]
     for i, (col, rule, cond, val) in enumerate(flag_rules):
         bg = ALT if i % 2 == 0 else WHITE
@@ -836,7 +839,7 @@ def build_composite(ws):
              "After line-level risk_scores are computed, lines are grouped by Voucher ID "
              "(the document auditors physically pull):")
     r = formula(ws, r,
-                "flag_density   =  total rule flags across all lines  /  (6 × line_count)")
+                "flag_density   =  total rule flags across all lines  /  (8 × line_count)")
     r = formula(ws, r,
                 "voucher_score  =  0.60 × max(risk_score)  +  0.25 × mean(risk_score)"
                 "  +  0.15 × flag_density   [multi-line]")
