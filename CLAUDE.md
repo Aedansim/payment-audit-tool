@@ -36,6 +36,10 @@ print(selected_vouchers[['Sample #','Vendor Name','voucher_score','voucher_reaso
 # Run accuracy benchmark (530 synthetic transactions, 30 injected anomalies)
 python benchmark.py
 
+# Generate scoring methodology reference Excel (for audit trail / score-basis queries)
+python make_scoring_reference.py
+# Output: output/Scoring_Methodology.xlsx  (5 sheets — see "What not to commit" for details)
+
 # Git workflow
 git add src/<changed_file>.py
 git commit -m "short imperative description"
@@ -168,6 +172,8 @@ This is intentional: voucher-level aggregation before scoring would lose line-le
 `output/` — generated artefacts (gitignored by `output/*`). Only `data/.gitkeep` and `output/.gitkeep` are tracked.  
 `benchmark.py` — committed to the repo as a development/QA tool. It is not part of the production pipeline.  
 `benchmark_comparison.py` — committed as a QA tool for comparing two pipeline configurations side-by-side. Runs both pipelines against the same synthetic dataset and prints recall, precision, Cohen's d, ML consensus flag distribution, and score statistics. No src/ files are modified by the script; all modified logic is defined inline. Use this when evaluating proposed changes to the scoring formula or ML thresholds before deciding whether to adopt them.
+
+`make_scoring_reference.py` — committed as a documentation utility. Run with `python make_scoring_reference.py` to generate `output/Scoring_Methodology.xlsx`. The file is a 5-sheet audit-trail reference explaining the mathematics behind each component score: **Overview** (component summary table, composite and voucher-rollup formulas); **Isolation Forest** (path-length correction c(n), anomaly score s(x,n), score_samples() convention, min-max normalisation, worked example with verification arithmetic); **Local Outlier Factor** (k-distance → reachability distance → LRD → LOF chain, normalisation, worked example with 5 points computing all intermediate values); **Benford's Law** (full expected-frequency table, 4-step scoring process including suppression rule, worked example over 20 transactions); **Composite Score** (full formula with per-component source, z-score and rule-flag detail, voucher rollup, risk tier cutoffs, ML Consensus flag logic). The generated Excel is gitignored (`output/*`); re-run the script to regenerate it.
 
 ## Accuracy benchmark (synthetic test — verified April 2026)
 
