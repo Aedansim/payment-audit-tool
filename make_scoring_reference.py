@@ -334,7 +334,7 @@ def build_if(ws):
              "median and scales by its interquartile range, making the model robust to "
              "the extreme outliers it is trying to detect.")
     r = body(ws, r,
-             "Up to 12 features enter the matrix (subject to Spearman correlation pruning "
+             "Up to 15 features enter the matrix (subject to Spearman correlation pruning "
              "at |corr| > 0.85 within the run):\n"
              "amount_log, amount_zscore_vendor, amount_zscore_costcentre, vendor_txn_count, "
              "processing_days_zscore, desc_length_zscore, vendor_amount_cv, "
@@ -347,7 +347,7 @@ def build_if(ws):
     r = section(ws, r, "4. Worked Example  (illustrative — simplified to 2 features for clarity)")
     r = blank(ws, r, 4)
     r = body(ws, r,
-             "In practice the model operates on ~10 scaled features simultaneously. This "
+             "In practice the model operates on ~15 scaled features simultaneously. This "
              "example uses 2 features (Amount z-score, Processing-days z-score) to illustrate "
              "how path lengths map to scores. Path lengths shown are illustrative means across "
              "T=300 trees.")
@@ -604,7 +604,7 @@ def build_benford(ws):
              "Recurring payments (monthly/quarterly/semi-annual/annual) are excluded because "
              "their fixed amounts naturally deviate from Benford's distribution.")
     r = formula(ws, r,
-                "first_digit(amount)  =  first significant digit of abs(amount)  ∈ {1, …, 9}")
+                "first_digit(amount)  =  first significant digit of amount  ∈ {1, …, 9}   [positive amounts only; negative amounts (reversals) return NaN and are excluded]")
     r = formula(ws, r,
                 "p_obs(d)  =  count of transactions with first digit d  /  n_nonrecurring")
     r = formula(ws, r,
