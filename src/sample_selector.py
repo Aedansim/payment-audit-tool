@@ -112,13 +112,13 @@ def _build_reason(row):
         d_str = f" (first digit: {int(fd)})" if fd is not None and not pd.isna(fd) else ""
         parts.append(f"Benford's Law deviation{d_str}")
 
+    if row.get('if_anomaly', 0):
+        parts.append("Isolation Forest: anomaly detected (top 5% of dataset)")
+    if row.get('lof_anomaly', 0):
+        parts.append("Local Outlier Factor: anomaly detected (top 5% relative to peer group)")
+
     if not parts:
-        if row.get('if_anomaly', 0):
-            parts.append("High Isolation Forest anomaly score")
-        if row.get('lof_anomaly', 0):
-            parts.append("High local outlier score")
-        if not parts:
-            parts.append("Elevated composite risk score")
+        parts.append("Elevated composite risk score")
 
     return "; ".join(parts)
 
@@ -202,6 +202,7 @@ def _rollup_vouchers(df):
             'Vendor ID':                top_line.get('Vendor ID', ''),
             'Vendor Name':              top_line.get('Vendor Name', ''),
             'Invoice Number(s)':        ', '.join(inv_nums),
+            'voucher_total_amount':     round(float(grp[AMOUNT_COL].sum()), 2),
             'voucher_line_count':       line_count,
             'voucher_max_score':        round(max_score, 4),
             'voucher_mean_score':       round(mean_score, 4),

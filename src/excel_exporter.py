@@ -62,14 +62,14 @@ def _safe_value(value):
 
 _VCH_DISPLAY_COLS = [
     'Voucher ID', 'Vendor ID', 'Vendor Name', 'Invoice Number(s)',
-    'voucher_line_count', 'voucher_score', 'voucher_risk_tier',
+    'voucher_total_amount', 'voucher_line_count', 'voucher_score', 'voucher_risk_tier',
     'voucher_flag_count', 'voucher_any_ml_consensus',
     'voucher_reason_codes',
 ]
 
 _VCH_HEADERS = [
     'Voucher ID', 'Vendor ID', 'Vendor Name', 'Invoice Number(s)',
-    'Line Count', 'Voucher Score', 'Risk Tier',
+    'Total Amount (SGD)', 'Line Count', 'Voucher Score', 'Risk Tier',
     'Flag Count', 'ML Consensus', 'Reason Codes',
 ]
 
@@ -101,6 +101,8 @@ def _sheet_selected_vouchers(wb, selected_vouchers):
             col_name = present[c_idx - 1]
             if col_name == 'voucher_score':
                 cell.number_format = '0.0000'
+            elif col_name == 'voucher_total_amount':
+                cell.number_format = '#,##0.00'
 
     ws.row_dimensions[1].height = 30
     _auto_width(ws)
@@ -134,6 +136,7 @@ _LINE_FLAG_COLS = [
     'near_threshold', 'is_individual_payee',
     'same_amount_vendor_irregular', 'is_recurring_payment',
     'benford_flag', 'processing_days',
+    'if_anomaly', 'lof_anomaly', 'zscore_anomaly',
 ]
 
 
@@ -201,7 +204,7 @@ def _sheet_voucher_line_detail(wb, df_scored, selected_vouchers):
 
 _ALL_VCH_COLS = [
     'Voucher ID', 'Vendor ID', 'Vendor Name', 'Invoice Number(s)',
-    'voucher_line_count', 'voucher_score', 'voucher_risk_tier',
+    'voucher_total_amount', 'voucher_line_count', 'voucher_score', 'voucher_risk_tier',
     'voucher_max_score', 'voucher_mean_score',
     'voucher_flag_count', 'voucher_any_ml_consensus',
     'voucher_reason_codes',
@@ -209,7 +212,7 @@ _ALL_VCH_COLS = [
 
 _ALL_VCH_HEADERS = [
     'Voucher ID', 'Vendor ID', 'Vendor Name', 'Invoice Number(s)',
-    'Line Count', 'Voucher Score', 'Risk Tier',
+    'Total Amount (SGD)', 'Line Count', 'Voucher Score', 'Risk Tier',
     'Max Line Score', 'Mean Line Score',
     'Flag Count', 'ML Consensus', 'Reason Codes',
 ]
@@ -237,6 +240,8 @@ def _sheet_all_vouchers(wb, df_vouchers):
             col_name = present[c_idx - 1]
             if col_name in ('voucher_score', 'voucher_max_score', 'voucher_mean_score'):
                 cell.number_format = '0.0000'
+            elif col_name == 'voucher_total_amount':
+                cell.number_format = '#,##0.00'
 
     ws.row_dimensions[1].height = 30
     _auto_width(ws)
@@ -281,6 +286,7 @@ def _sheet_all_lines(wb, df_scored):
         'near_threshold', 'is_individual_payee',
         'same_amount_vendor_irregular', 'is_recurring_payment',
         'benford_flag', 'processing_days',
+        'if_anomaly', 'lof_anomaly', 'zscore_anomaly',
     ] if c in df_scored.columns]
 
     orig_present = [c for c in _ORIG_COLS if c in df_scored.columns]
@@ -380,10 +386,10 @@ def _sheet_benford(wb, benford_summary, stats):
         (11, "Chi-Square Statistic & p-value",
          "Tests whether the observed digit frequencies are statistically significantly different from "
          "Benford's expected values. A p-value < 0.05 indicates the difference is statistically "
-         "significant. Important caveat: for large datasets (> 1,000 transactions), chi-square is very "
-         "sensitive and will often flag minor deviations as significant even when they are not "
-         "practically meaningful. Always read chi-square alongside MAD — a significant p-value with "
-         "a small MAD (< 0.012) may not warrant audit action."),
+         "significant. A significant chi-square p-value with small MAD (< 0.012) indicates that "
+         "anomalies are not pervasive at the overall dataset level, but may be concentrated in "
+         "specific transactions or digit groups. In such cases, individual transaction Benford flags "
+         "remain relevant and should be reviewed in conjunction with other risk signals."),
         (12, "Conformity Verdict",
          "Summarises the overall finding based on the MAD threshold. Non-Conformity does not mean "
          "fraud — it means the first-digit distribution is unusual and warrants investigation of the "
@@ -403,11 +409,13 @@ def _sheet_benford(wb, benford_summary, stats):
     _key_msg = (
         "Key Takeaway: Read MAD and Chi-Square together. MAD quantifies the size of the deviation; "
         "Chi-Square (p-value) tests whether it is statistically significant for the sample size. "
-        "In large datasets, a significant p-value paired with a small MAD (< 0.012) may not be "
-        "practically meaningful for audit purposes. The strongest audit signal is a Non-Conformity "
-        "MAD (> 0.015) combined with a low p-value — this warrants investigation of the most deviant "
-        "digits (highlighted in orange in the frequency table below). Transactions whose first digit "
-        "falls among the most deviant are identified by the 'Most Deviant Digits' field above."
+        "A significant p-value with small MAD (< 0.012) indicates anomalies may be concentrated "
+        "in specific transactions or digit groups rather than dataset-wide — individual transaction "
+        "Benford flags remain relevant and should be reviewed alongside other risk signals. "
+        "The strongest audit signal is a Non-Conformity MAD (> 0.015) combined with a low p-value — "
+        "this warrants investigation of the most deviant digits (highlighted in orange in the "
+        "frequency table below). Transactions whose first digit falls among the most deviant are "
+        "identified by the 'Most Deviant Digits' field above."
     )
     _kc = ws.cell(row=_key_row, column=1, value=_key_msg)
     _kc.font = Font(bold=True, size=9, color="1F3864")
