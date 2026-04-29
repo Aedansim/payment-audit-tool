@@ -793,6 +793,14 @@ def _page5_vendors(doc, df):
 #   IF  = Isolation Forest   LOF = Local Outlier Factor   Z   = Statistical Z-Score
 ML_FEATURE_TABLE_DATA = [
     (
+        "Payment amount (log scale)",
+        "Natural log of the payment amount, compressing the wide range of amounts to a proportional scale.",
+        "Continuous — no binary threshold",
+        "IF, LOF",
+        "Without log-scaling, a single extreme amount would dominate distance calculations in IF and LOF. "
+        "The log transformation ensures amount magnitude is weighted proportionally rather than absolutely.",
+    ),
+    (
         "Amount vs. vendor average",
         "How much the payment amount differs from what this vendor is typically paid.",
         "Z-score > 2.0",
@@ -873,6 +881,14 @@ ML_FEATURE_TABLE_DATA = [
         "z-score thresholds become permissive due to high natural variance.",
     ),
     (
+        "Vendor transaction count",
+        "Total number of payment lines attributed to this vendor in the dataset.",
+        "Continuous — no binary threshold",
+        "IF, LOF",
+        "Vendors appearing very rarely (potentially fictitious) or at abnormally high volume relative "
+        "to peers are a recognised fraud pattern; the ML models see this as contextual anomaly evidence.",
+    ),
+    (
         "Duplicate payment",
         "Whether the same invoice number, vendor, and amount appears across more than one distinct "
         "payment voucher in the dataset.",
@@ -947,9 +963,11 @@ def _page6_feature_table(doc):
 
     _heading(doc, "Features Used in Machine Learning Models", level=2)
     _body(doc,
-          "All thirteen features below are normalised via RobustScaler and fed into the ML models "
-          "before scoring. Amount z-scores additionally drive the Statistical Z-Score component "
-          "directly.",
+          "The fifteen features below are candidates for the ML models in each run. Before fitting, "
+          "Spearman correlation pruning removes one of any pair with |correlation| > 0.85, so the "
+          "active feature set may be smaller than fifteen depending on the dataset. Surviving features "
+          "are normalised via RobustScaler before being fed into the models. Amount z-scores "
+          "additionally drive the Statistical Z-Score component directly.",
           size=9)
     doc.add_paragraph()
     _render_feature_table(doc, ML_FEATURE_TABLE_DATA, col_widths)
