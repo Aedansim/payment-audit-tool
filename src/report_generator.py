@@ -538,8 +538,8 @@ def _page2(doc):
     p.alignment = WD_ALIGN_PARAGRAPH.LEFT
     doc.add_paragraph()
     _body(doc,
-          "The rule flags score is the fraction of the 6 binary rules triggered for that line "
-          "(e.g. 2 rules triggered = 2/6 = 0.33). The Benford score is normalised relative to "
+          "The rule flags score is the fraction of the 8 binary rules triggered for that line "
+          "(e.g. 2 rules triggered = 2/8 = 0.25). The Benford score is normalised relative to "
           "the maximum Benford deviation in the dataset. The Z-score signal is the larger of the "
           "vendor z-score and cost centre z-score, min-max normalised to [0, 1] across all lines.",
           size=10)
@@ -625,7 +625,7 @@ def _page2(doc):
     doc.add_paragraph()
     _body(doc,
           "Flag density = total rule flags triggered across all lines in the voucher ÷ "
-          "(6 flag types × number of lines). The 60/25/15 split reflects that audit significance "
+          "(8 flag types × number of lines). The 60/25/15 split reflects that audit significance "
           "is primarily driven by the worst line in the voucher, moderated by whether other lines "
           "are also elevated, and supplemented by the breadth of rule flag coverage. For multi-line "
           "vouchers, reason codes in the output are prefixed with [Account Code] so auditors can "
