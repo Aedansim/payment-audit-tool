@@ -335,10 +335,10 @@ def _page1(doc, df, df_vouchers, selected_vouchers, benford_stats):
     # ---- Summary of findings ----
     _heading(doc, "Summary of Findings", level=2)
 
-    n_benford  = int(df.get('benford_flag', pd.Series(0)).sum())
-    n_if_high  = int((df.get('if_score',      pd.Series(0)) > 0.65).sum())
-    n_lof_high = int((df.get('lof_score',     pd.Series(0)) > 0.65).sum())
-    n_z_high   = int((df.get('zscore_score',  pd.Series(0)) > 0.65).sum())
+    n_benford  = int(df.get('benford_flag',    pd.Series(0)).sum())
+    n_if_high  = int(df.get('if_anomaly',     pd.Series(0)).sum())
+    n_lof_high = int(df.get('lof_anomaly',    pd.Series(0)).sum())
+    n_z_high   = int(df.get('zscore_anomaly', pd.Series(0)).sum())
     n_rule     = int((df.get('rule_flags_score', pd.Series(0)) > 0).sum())
 
     n_sel_lines = int(selected_vouchers['voucher_line_count'].sum()) \
@@ -350,8 +350,8 @@ def _page1(doc, df, df_vouchers, selected_vouchers, benford_stats):
 
     findings = [
         ("Benford's Law deviations flagged",          f"{n_benford:,} transaction lines"),
-        ("Isolation Forest anomalies (score > 0.65)", f"{n_if_high:,} transaction lines"),
-        ("Local outlier anomalies (score > 0.65)",    f"{n_lof_high:,} transaction lines"),
+        ("Isolation Forest anomalies (top 5% boundary)", f"{n_if_high:,} transaction lines"),
+        ("Local outlier anomalies (top 5% boundary)",    f"{n_lof_high:,} transaction lines"),
         ("Statistical z-score outliers",              f"{n_z_high:,} transaction lines"),
         ("Rule-based flags triggered",                f"{n_rule:,} transaction lines"),
         ("Final vouchers selected for audit",         f"{len(selected_vouchers)} payment vouchers ({n_sel_lines:,} line items)"),
@@ -521,10 +521,11 @@ def _page2(doc):
           "Each of the five methods produces a score between 0 and 1, where 0 means most normal and 1 means most anomalous. "
           "These are combined into a single risk score using fixed weights:",
           size=10)
-    _body(doc,
-          "    risk_score  =  0.30 × IF  +  0.25 × LOF  +  0.25 × Z-score"
-          "  +  0.15 × rule_flags  +  0.05 × Benford",
-          bold=True, size=10)
+    p = _body(doc,
+              "    risk_score  =  0.30 × IF  +  0.25 × LOF  +  0.25 × Z-score"
+              "  +  0.15 × rule_flags  +  0.05 × Benford",
+              bold=True, size=8)
+    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
     doc.add_paragraph()
     _body(doc,
           "The rule flags score is the fraction of the 6 binary rules triggered for that line "
@@ -602,13 +603,15 @@ def _page2(doc):
           "Individual scored lines are grouped by Voucher ID — the document auditors physically "
           "pull — rather than by invoice number. The voucher score formula is:",
           size=10)
-    _body(doc,
-          "    voucher_score (multi-line)  =  0.60 × max_line_score"
-          "  +  0.25 × mean_line_score  +  0.15 × flag_density",
-          bold=True, size=10)
-    _body(doc,
-          "    voucher_score (single-line)  =  line risk_score  (no rollup needed)",
-          bold=True, size=10)
+    p = _body(doc,
+              "    voucher_score (multi-line)  =  0.60 × max_line_score"
+              "  +  0.25 × mean_line_score  +  0.15 × flag_density",
+              bold=True, size=8)
+    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    p = _body(doc,
+              "    voucher_score (single-line)  =  line risk_score  (no rollup needed)",
+              bold=True, size=8)
+    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
     doc.add_paragraph()
     _body(doc,
           "Flag density = total rule flags triggered across all lines in the voucher ÷ "
@@ -781,73 +784,73 @@ def _page5_vendors(doc, df):
 ML_FEATURE_TABLE_DATA = [
     (
         "Amount vs. vendor average",
-        "How much the payment amount differs from what this vendor is typically paid",
+        "How much the payment amount differs from what this vendor is typically paid.",
         "Z-score > 2.0",
         "IF, LOF, Z-score",
-        "Unusually large payments to a vendor may indicate over-billing or fictitious invoices",
+        "Unusually large payments to a vendor may indicate over-billing or fictitious invoices.",
     ),
     (
         "Amount vs. cost centre average",
-        "How much the payment amount differs from the typical amounts processed in that cost centre",
+        "How much the payment amount differs from the typical amounts processed in that cost centre.",
         "Z-score > 2.0",
         "IF, LOF, Z-score",
-        "Helps detect amounts that are out of place for the department, suggesting possible miscoding or inflated claims",
+        "Helps detect amounts that are out of place for the department, suggesting possible miscoding or inflated claims.",
     ),
     (
         "Round number",
-        "Whether the payment amount ends in 00, 000, or 0,000",
+        "Whether the payment amount ends in 00, 000, or 0,000.",
         "Exactly divisible by 100",
         "IF, LOF",
-        "Genuine invoice amounts rarely end in round numbers; manually chosen or fictitious amounts often do",
+        "Genuine invoice amounts rarely end in round numbers; manually chosen or fictitious amounts often do.",
     ),
     (
         "Non-working day",
-        "Whether the invoice is dated on a Saturday, Sunday, or Singapore public holiday",
+        "Whether the invoice is dated on a Saturday, Sunday, or Singapore public holiday.",
         "Sat, Sun, or SG public holiday (holidays library)",
         "IF, LOF",
-        "Payments authorised outside business hours may bypass the normal multi-person review and approval process",
+        "Payments authorised outside business hours may bypass the normal multi-person review and approval process.",
     ),
     (
         "Month-end",
-        "Whether the invoice is dated in the last 3 calendar days of the month",
+        "Whether the invoice is dated in the last 3 calendar days of the month.",
         "Last 3 calendar days of month",
         "IF, LOF",
-        "May indicate rushed processing to meet budget targets or period-end financial reporting cut-offs",
+        "May indicate rushed processing to meet budget targets or period-end financial reporting cut-offs.",
     ),
     (
         "Near approval threshold",
         "Whether the amount falls within 5% below a common approval limit",
         "Within 5% below SGD 1K / 5K / 10K / 50K / 100K",
         "IF, LOF",
-        "A well-documented technique ('structuring') to avoid triggering higher-level approval requirements",
+        "A known technique ('structuring') to avoid triggering higher-level approval requirements.",
     ),
     (
         "Individual payee",
-        "Whether the Vendor ID matches the Singapore NRIC/FIN format (one letter, 7 digits, one letter)",
-        "Regex: ^[A-Z][0-9]{7}[A-Z]$",
+        "Whether the Vendor ID matches the Singapore NRIC/FIN format (one letter, 7 digits, one letter).",
+        "Regex: ^[A-Za-z][0-9]{7}[A-Za-z]$",
         "IF, LOF",
-        "Payments to individuals carry higher inherent risk; they bypass standard vendor vetting and procurement controls",
+        "Payments to individuals carry higher inherent risk versus registered businesses.",
     ),
     (
         "Processing time",
-        "Number of calendar days between Invoice Date and Voucher Accounting Date",
+        "Number of calendar days between Invoice Date and Voucher Accounting Date.",
         "Absolute z-score > 2.5",
         "IF, LOF",
-        "Very fast processing may indicate bypassed controls; unusually long delays may indicate backdating",
+        "Very fast processing may indicate bypassed controls; unusually long delays may indicate backdating.",
     ),
     (
         "Description length",
-        "Character length of the Voucher Line Description field",
+        "Character length of the Voucher Line Description field.",
         "Absolute z-score > 2.5",
         "IF, LOF",
-        "Very short descriptions may indicate incomplete entries; very long ones may indicate unusual or fabricated narrative",
+        "Very short descriptions may indicate incomplete entries; very long ones may indicate unusual or fabricated narrative.",
     ),
     (
         "Irregular repeated amount",
-        "Same vendor paid the same amount more than twice, with no regular monthly/quarterly/annual schedule",
+        "Same vendor paid the same amount more than twice, with no regular monthly/quarterly/annual schedule.",
         "> 2 occurrences with no detected recurring cycle",
         "IF, LOF",
-        "May indicate duplicated or split payments that were structured to avoid detection",
+        "May indicate duplicated or split payments that were structured to avoid detection.",
     ),
 ]
 
@@ -855,10 +858,10 @@ ML_FEATURE_TABLE_DATA = [
 BENFORD_FEATURE_TABLE_DATA = [
     (
         "Benford's Law first digit",
-        "Whether the payment amount's first digit deviates significantly from Benford's expected frequency",
-        "First digit among the top-3 most deviant digits; non-recurring payments only",
+        "Whether the payment amount's first digit deviates significantly from Benford's expected frequency.",
+        "First digit among the top-3 most deviant digits; non-recurring payments only.",
         "None — Benford's Law analysis only (5% of composite score)",
-        "Systematic deviation may indicate manually constructed or manipulated amounts",
+        "Systematic deviation may indicate manually constructed or manipulated amounts.",
     ),
 ]
 

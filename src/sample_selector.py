@@ -113,9 +113,9 @@ def _build_reason(row):
         parts.append(f"Benford's Law deviation{d_str}")
 
     if not parts:
-        if row.get('if_score', 0) > 0.65:
+        if row.get('if_anomaly', 0):
             parts.append("High Isolation Forest anomaly score")
-        if row.get('lof_score', 0) > 0.65:
+        if row.get('lof_anomaly', 0):
             parts.append("High local outlier score")
         if not parts:
             parts.append("Elevated composite risk score")
