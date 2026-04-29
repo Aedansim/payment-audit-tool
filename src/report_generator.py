@@ -399,7 +399,7 @@ def _page2(doc):
           "Before scoring, each transaction line is enriched with computed behavioural features: "
           "the payment amount normalised against the vendor's average amount (z-score) and "
           "against the cost centre average; processing days (Invoice Date to Voucher Accounting "
-          "Date); whether the invoice date is a non-working day; whether the amount is round; "
+          "Date); whether the invoice date falls on a weekend; whether the amount is round; "
           "whether it falls just below a common approval threshold; whether the payee is an "
           "individual (Singapore NRIC/FIN format); and whether the same amount recurs to the same "
           "vendor without a regular schedule.",
@@ -496,7 +496,7 @@ def _page2(doc):
         "fabricated or manually chosen amounts sometimes exhibit round number bias, where "
         "individuals select psychologically convenient figures rather than amounts arising from "
         "genuine invoices (Nigrini, 2012; ACFE Fraud Examiners Manual).",
-        "Non-working day — invoice dated on a Saturday, Sunday, or Singapore public holiday. "
+        "Weekend payment — invoice dated on a Saturday or Sunday. "
         "Payments outside business hours may bypass the normal multi-person review process.",
         "Month-end — invoice in the last 3 calendar days of the month. May indicate rushed "
         "processing to meet budget targets or period-end financial reporting cut-offs.",
@@ -804,9 +804,9 @@ ML_FEATURE_TABLE_DATA = [
         "Genuine invoice amounts rarely end in round numbers; manually chosen or fictitious amounts often do.",
     ),
     (
-        "Non-working day",
-        "Whether the invoice is dated on a Saturday, Sunday, or Singapore public holiday.",
-        "Sat, Sun, or SG public holiday (holidays library)",
+        "Weekend payment",
+        "Whether the invoice is dated on a Saturday or Sunday.",
+        "Saturday or Sunday",
         "IF, LOF",
         "Payments authorised outside business hours may bypass the normal multi-person review and approval process.",
     ),

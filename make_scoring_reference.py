@@ -337,7 +337,7 @@ def build_if(ws):
              "Up to 12 features enter the matrix (subject to Spearman correlation pruning "
              "at |corr| > 0.85 within the run):\n"
              "amount_log, amount_zscore_vendor, amount_zscore_costcentre, vendor_txn_count, "
-             "processing_days_zscore, desc_length_zscore, is_round_number, is_sg_nonworkday, "
+             "processing_days_zscore, desc_length_zscore, is_round_number, is_weekend_payment, "
              "is_month_end, is_individual_payee, near_threshold, same_amount_vendor_irregular",
              h=54)
     r = blank(ws, r)
@@ -817,7 +817,7 @@ def build_composite(ws):
     r = hdr_row(ws, r, ["Flag Column", "Rule", "Condition", "Value", "", "", "", ""])
     flag_rules = [
         ("is_round_number",           "Round number",           "amount mod 100 == 0",                   "0 or 1"),
-        ("is_sg_nonworkday",          "Non-working day",        "Invoice Date is Sat/Sun/SG public holiday","0 or 1"),
+        ("is_weekend_payment",         "Weekend payment",        "Invoice Date is Saturday or Sunday",      "0 or 1"),
         ("is_month_end",              "Month-end",              "Invoice day ≥ days_in_month − 2",        "0 or 1"),
         ("near_threshold",            "Near approval threshold","amount within 5% below 1K/5K/10K/50K/100K","0 or 1"),
         ("is_individual_payee",       "Individual payee",       "Vendor ID matches NRIC/FIN regex",       "0 or 1"),

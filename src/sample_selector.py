@@ -18,7 +18,7 @@ _VCH_W_FLAGS = 0.15
 
 FLAG_COLS = [
     'is_round_number',
-    'is_sg_nonworkday',
+    'is_weekend_payment',
     'is_month_end',
     'near_threshold',
     'is_individual_payee',
@@ -86,8 +86,8 @@ def _build_reason(row):
         amt = row.get(AMOUNT_COL, '')
         parts.append(f"Round number amount (SGD {amt:,.0f})" if isinstance(amt, (int, float)) else "Round number amount")
 
-    if row.get('is_sg_nonworkday', 0):
-        parts.append("Transaction on non-working day (weekend/public holiday)")
+    if row.get('is_weekend_payment', 0):
+        parts.append("Transaction on weekend (Saturday or Sunday)")
 
     if row.get('is_month_end', 0):
         parts.append("Month-end transaction (last 3 days of month)")

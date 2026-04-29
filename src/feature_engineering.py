@@ -1,11 +1,9 @@
 import re
 import numpy as np
 import pandas as pd
-import holidays
 from scipy import stats
 
 AMOUNT_COL = 'Payment Voucher Amount (SGD, Excluding GST)'
-_SG_HOLIDAYS = holidays.Singapore()
 
 APPROVAL_THRESHOLDS = [1_000, 5_000, 10_000, 50_000, 100_000]
 NEAR_THRESHOLD_PCT = 0.05
@@ -30,11 +28,10 @@ def _group_zscore(df, value_col, group_col):
     return df.groupby(group_col)[value_col].transform(_z).fillna(0.0)
 
 
-def _sg_nonworkday(date):
+def _is_weekend_payment(date):
     if pd.isna(date):
         return 0
-    d = date.date()
-    return 1 if (d.weekday() >= 5 or d in _SG_HOLIDAYS) else 0
+    return 1 if date.date().weekday() >= 5 else 0
 
 
 def _round_number(amount):
@@ -118,7 +115,7 @@ def engineer_features(df):
 
     print("  Computing rule-based flags...")
     df['is_round_number'] = df[AMOUNT_COL].apply(_round_number)
-    df['is_sg_nonworkday'] = df['Invoice Date'].apply(_sg_nonworkday)
+    df['is_weekend_payment'] = df['Invoice Date'].apply(_is_weekend_payment)
     df['is_month_end'] = df['Invoice Date'].apply(
         lambda d: 0 if pd.isna(d) else (1 if d.day >= (d.days_in_month - 2) else 0)
     )
@@ -165,7 +162,7 @@ def engineer_features(df):
         'processing_days_zscore',
         'desc_length_zscore',
         'is_round_number',
-        'is_sg_nonworkday',
+        'is_weekend_payment',
         'is_month_end',
         'is_individual_payee',
         'near_threshold',
