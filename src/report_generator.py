@@ -947,7 +947,7 @@ def _page6_feature_table(doc):
 
     _heading(doc, "Features Used in Machine Learning Models", level=2)
     _body(doc,
-          "All ten features below are normalised via RobustScaler and fed into the ML models "
+          "All thirteen features below are normalised via RobustScaler and fed into the ML models "
           "before scoring. Amount z-scores additionally drive the Statistical Z-Score component "
           "directly.",
           size=9)
