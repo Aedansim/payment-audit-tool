@@ -381,7 +381,7 @@ def _page1(doc, df, df_vouchers, selected_vouchers, benford_stats):
 # Page 2 — Methodology
 # ---------------------------------------------------------------------------
 
-def _page2(doc):
+def _page2(doc, t08_count=0):
     _heading(doc, "Methodology — How the Tool Works", level=1)
 
     _body(doc,
@@ -406,8 +406,11 @@ def _page2(doc):
           "just below a common approval threshold; whether the payee is an individual (Singapore "
           "NRIC/FIN format); whether the same invoice appears across multiple payment vouchers "
           "(potential duplicate payment); whether the payment is a negative-amount reversal or "
-          "credit note; and whether the same amount recurs to the same vendor without a regular "
-          "schedule.",
+          "credit note; whether the same amount recurs to the same vendor without a regular "
+          "schedule; whether the vendor issued two or more sequentially numbered invoices on the "
+          "same date (split purchase risk); and whether the payment amount shares the same digit "
+          "composition as another transaction to the same vendor with the same description but a "
+          "different numeric value (transposed amount — keying error risk).",
           size=10)
     _body(doc,
           "Caveat: Recurring payments (monthly, quarterly, semi-annual, annual cycles) are detected "
@@ -668,6 +671,14 @@ def _page2(doc):
           "ensuring the highest-risk vouchers are always covered.",
           size=10)
     doc.add_paragraph()
+    _body(doc,
+          f"Vendors with IDs beginning with ‘T08’ (government agencies) have been de-prioritised "
+          f"in the sample selection process. Such vendors are excluded from the HIGH and MEDIUM "
+          f"selection tiers and will only appear in the audit sample if insufficient non-government "
+          f"vouchers exist in the lower risk tier. {t08_count} T08 vendor voucher(s) were identified "
+          f"in the dataset.",
+          size=10)
+    doc.add_paragraph()
 
     # ---- Caveats ----
     _heading(doc, "Important Caveats", level=2)
@@ -903,6 +914,25 @@ ML_FEATURE_TABLE_DATA = [
         "IF, LOF",
         "Reversals paired with other risk signals on the corresponding original payment warrant auditor review.",
     ),
+    (
+        "Split purchase risk",
+        "Whether the same vendor has two or more invoices on the same invoice date with alphanumerically "
+        "sequential invoice number suffixes (e.g. INV-1001, INV-1002, INV-1003).",
+        "≥ 2 invoices from same vendor on same date with consecutive numeric suffixes",
+        "IF, LOF",
+        "A known technique for circumventing approval thresholds by splitting a single purchase into "
+        "multiple invoices, each below the limit requiring higher-level authorisation.",
+    ),
+    (
+        "Transposed amount",
+        "Whether the same vendor and description group contains another transaction whose amount "
+        "has the same set of digits but arranged in a different order (e.g. SGD 4,800 vs SGD 8,400).",
+        "Same digit multiset but different numeric value within same vendor + description group (positive amounts only)",
+        "IF, LOF",
+        "Digit transpositions are a common keying error that can result in significant over- or "
+        "under-payment if left undetected. They are also occasionally used to conceal deliberate "
+        "manipulation of invoice amounts.",
+    ),
 ]
 
 # Features that contribute to scoring but do not feed into any ML model.
@@ -963,9 +993,9 @@ def _page6_feature_table(doc):
 
     _heading(doc, "Features Used in Machine Learning Models", level=2)
     _body(doc,
-          "The fifteen features below are candidates for the ML models in each run. Before fitting, "
+          "The seventeen features below are candidates for the ML models in each run. Before fitting, "
           "Spearman correlation pruning removes one of any pair with |correlation| > 0.85, so the "
-          "active feature set may be smaller than fifteen depending on the dataset. Surviving features "
+          "active feature set may be smaller than seventeen depending on the dataset. Surviving features "
           "are normalised via RobustScaler before being fed into the models. Amount z-scores "
           "additionally drive the Statistical Z-Score component directly.",
           size=9)
@@ -1014,7 +1044,8 @@ def export_word_report(df, df_vouchers, selected_vouchers, benford_stats, output
     doc.add_page_break()
 
     print("    Page 2 — Methodology")
-    _page2(doc)
+    t08_count = int(df_vouchers.get('is_t08_vendor', pd.Series(dtype=bool)).sum())
+    _page2(doc, t08_count)
 
     print("    Page 3 — Analytical Charts")
     _page3_charts(doc, df_vouchers, selected_vouchers, benford_stats)

@@ -36,18 +36,24 @@ def _is_weekend_payment(date):
 
 def _detect_duplicates(df):
     """Flag rows where the same invoice (vendor + invoice number + amount) appears in
-    more than one distinct Voucher ID — a potential double payment."""
-    result = pd.Series(0, index=df.index)
+    more than one distinct Voucher ID — a potential double payment.
+    Returns (is_duplicate Series, duplicate_matched_invoice Series)."""
+    is_dup = pd.Series(0, index=df.index)
+    matched_inv = pd.Series('', index=df.index, dtype=object)
     has_invoice = df['Invoice Number'].notna() & (
         df['Invoice Number'].astype(str).str.strip() != ''
     )
     if not has_invoice.any():
-        return result
+        return is_dup, matched_inv
     relevant = df[has_invoice]
     key = ['Vendor ID', 'Invoice Number', AMOUNT_COL]
     cross_voucher = relevant.groupby(key)['Voucher ID'].transform('nunique') > 1
-    result.loc[relevant[cross_voucher].index] = 1
-    return result
+    flagged_idx = relevant[cross_voucher].index
+    is_dup.loc[flagged_idx] = 1
+    matched_inv.loc[flagged_idx] = (
+        relevant.loc[flagged_idx, 'Invoice Number'].astype(str).str.strip()
+    )
+    return is_dup, matched_inv
 
 
 def _vendor_amount_cv(df):
@@ -106,6 +112,49 @@ def _detect_recurring(df):
     return is_recurring
 
 
+def _detect_split_purchase(df):
+    """Flag transactions where the same vendor has 2+ invoices on the same date
+    with alphanumerically sequential numeric suffixes — possible split purchase."""
+    result = pd.Series(0, index=df.index)
+    for (vid, idate), grp in df.groupby(['Vendor ID', 'Invoice Date'], sort=False):
+        if pd.isna(idate) or len(grp) < 2:
+            continue
+        inv_nums = grp['Invoice Number'].astype(str).str.strip()
+        suffixes = inv_nums.str.extract(r'(\d+)$', expand=False)
+        if suffixes.isna().any():
+            continue
+        nums = sorted(suffixes.astype(int).tolist())
+        if nums == list(range(nums[0], nums[-1] + 1)):
+            result.loc[grp.index] = 1
+    return result
+
+
+def _detect_transposed_amounts(df):
+    """Flag transactions where same vendor and description have digit-transposed amounts —
+    same digit multiset but different numeric value, suggesting a keying error."""
+    result = pd.Series(0, index=df.index)
+    pos_mask = df[AMOUNT_COL] > 0
+    if not pos_mask.any():
+        return result
+    pos = df[pos_mask].copy()
+    pos['_desc_key'] = pos['Voucher Line Description'].astype(str).str.strip().str.lower()
+    pos['_digit_set'] = pos[AMOUNT_COL].apply(
+        lambda x: tuple(sorted(str(round(abs(x)))))
+    )
+    for (vid, desc), grp in pos.groupby(['Vendor ID', '_desc_key'], sort=False):
+        if len(grp) < 2:
+            continue
+        idxs = grp.index.tolist()
+        amounts = grp[AMOUNT_COL].tolist()
+        digit_sets = grp['_digit_set'].tolist()
+        for i in range(len(idxs)):
+            for j in range(i + 1, len(idxs)):
+                if digit_sets[i] == digit_sets[j] and amounts[i] != amounts[j]:
+                    result.loc[idxs[i]] = 1
+                    result.loc[idxs[j]] = 1
+    return result
+
+
 def _prune_correlated(df, features, threshold=0.85):
     """Drop one of any feature pair with Spearman |corr| > threshold."""
     corr = df[features].fillna(0).corr(method='spearman').abs()
@@ -144,7 +193,7 @@ def engineer_features(df):
 
     print("  Computing rule-based flags...")
     df['is_reversal'] = (df[AMOUNT_COL] < 0).astype(int)
-    df['is_duplicate'] = _detect_duplicates(df)
+    df['is_duplicate'], df['duplicate_matched_invoice'] = _detect_duplicates(df)
     df['is_round_number'] = df[AMOUNT_COL].apply(_round_number)
     df['is_weekend_payment'] = df['Invoice Date'].apply(_is_weekend_payment)
     df['is_month_end'] = df['Invoice Date'].apply(
@@ -188,6 +237,16 @@ def engineer_features(df):
         (counts > 2) & (df['is_recurring_payment'] == 0)
     ).astype(int)
 
+    print("  Detecting split purchase risk (same vendor, same date, sequential invoice numbers)...")
+    df['is_split_purchase_risk'] = _detect_split_purchase(df)
+    n_split = int(df['is_split_purchase_risk'].sum())
+    print(f"  Found {n_split:,} transactions with split purchase risk.")
+
+    print("  Detecting transposed amounts (same vendor and description, digit-transposed value)...")
+    df['is_transposed_amount'] = _detect_transposed_amounts(df)
+    n_trans = int(df['is_transposed_amount'].sum())
+    print(f"  Found {n_trans:,} transactions with possible transposed amounts.")
+
     ml_features = [
         'amount_log',
         'amount_zscore_vendor',
@@ -204,6 +263,8 @@ def engineer_features(df):
         'same_amount_vendor_irregular',
         'is_duplicate',
         'is_reversal',
+        'is_split_purchase_risk',
+        'is_transposed_amount',
     ]
 
     print("  Checking feature correlations...")

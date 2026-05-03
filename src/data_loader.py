@@ -17,7 +17,7 @@ def load_transactions(filepath):
         raise FileNotFoundError(
             f"\n  File not found: {filepath}"
             "\n  Please place your Excel file in the 'data/' folder "
-            "and update INPUT_FILE in Step 1."
+            "and update INPUT_FILE in Step 0."
         )
 
     print(f"  Loading '{path.name}'...")

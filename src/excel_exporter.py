@@ -515,6 +515,21 @@ def _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats)
     for r in range(3, 3 + len(rows)):
         ws.row_dimensions[r].height = 15
 
+    # T08 de-prioritisation note
+    note_row = 3 + len(rows) + 1
+    note_text = (
+        "Note: Vendors with IDs beginning with 'T08' (government agencies) have been "
+        "de-prioritised and will not be selected as samples unless no other vouchers are "
+        "available in the lower risk tier. They remain visible in the All Vouchers Scored "
+        "sheet for reference."
+    )
+    note_cell = ws.cell(row=note_row, column=1, value=note_text)
+    note_cell.fill = PatternFill("solid", fgColor="FFC000")
+    note_cell.font = Font(size=10, bold=False)
+    note_cell.alignment = Alignment(wrap_text=True, vertical='top')
+    ws.merge_cells(f'A{note_row}:C{note_row}')
+    ws.row_dimensions[note_row].height = 40
+
 
 # ---------------------------------------------------------------------------
 # Public entry point
