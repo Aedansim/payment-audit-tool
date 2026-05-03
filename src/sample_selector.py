@@ -215,11 +215,10 @@ def _rollup_vouchers(df):
         )
 
         # Collect all distinct, non-blank Voucher Line Descriptions
-        line_descs = (
-            grp['Voucher Line Description'].astype(str).str.strip()
-            .pipe(lambda s: s[~s.isin(['', 'nan', 'NaN', 'None'])])
-            .unique().tolist()
-        )
+        line_descs = [
+            str(d).strip() for d in grp['Voucher Line Description'].unique()
+            if pd.notna(d) and str(d).strip() not in ('', 'nan', 'NaN', 'None')
+        ]
 
         records.append({
             'Voucher ID':                    str(voucher_id),
