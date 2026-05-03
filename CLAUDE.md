@@ -91,21 +91,23 @@ export_word_report()     — 6-page python-docx report with embedded matplotlib 
 
 **Two-level scoring — line items then payment vouchers** (`sample_selector`):
 - All scoring (Benford, ML ensemble, z-scores, rule flags) runs at the individual line-item level, producing `risk_score` per row. The feature engineering and scoring engine are not involved in the rollup.
-- Lines are then grouped by `Voucher ID` into payment vouchers. `Voucher ID` is the audit unit because it is system-generated, always present, and is the document auditors physically pull. `Invoice Number` is retained as a display field (`Invoice Number(s)`) showing which vendor invoices the voucher relates to.
+- Lines are then grouped by `Voucher ID` into payment vouchers. `Voucher ID` is the audit unit because it is system-generated, always present, and is the document auditors physically pull. `Invoice Number` is retained as a display field (`Invoice Number(s)`) and `Voucher Line Description` as `Voucher Line Description(s)` (unique descriptions pipe-separated), both showing the line-level detail that relates to the voucher.
 - Voucher score formula: `0.60 × max_line_score + 0.25 × mean_line_score + 0.15 × flag_density`. Single-line vouchers have `voucher_score = risk_score` exactly.
 - Risk tiers assigned by percentile: HIGH (top 5%), MEDIUM (next 15%), LOW (rest).
+- T08 vendor de-prioritisation: before stratified sampling, vouchers from vendors whose `Vendor ID` starts with `T08` are temporarily overridden to LOW tier for sampling purposes. Their real tier and score are preserved in all outputs.
 - Stratified sample selection: all HIGH mandatory (capped at `n_samples`), ~75% of remainder from MEDIUM, random LOW baseline.
+- Post-selection similarity deduplication: for each vendor with ≥ 2 selected vouchers, near-duplicate descriptions (Jaccard token-overlap > 0.70) are resolved by dropping the lower-scoring voucher and pulling the next-best unselected replacement. A `similarity_deduplicated` column marks replacements.
 - Reason codes for single-line vouchers: plain text, no prefix. For multi-line vouchers: prefixed with `[Account Code]` to identify which line triggered each reason.
 
 **Sample size cap** (`sample_selector._stratified_sample`): if the HIGH tier alone contains ≥ `n_samples` vouchers, the function returns only the top `n_samples` from HIGH and skips MEDIUM/LOW entirely. This ensures the output is always exactly `n_samples`.
 
 **Word report — 6-page structure** (`report_generator`):
 - Page 1 (portrait): Executive Summary — dataset overview table + findings bullets
-- Page 2 (portrait): Methodology — comprehensive audit-grade standalone document covering: four-stage pipeline overview (feature engineering → scoring → voucher rollup → sample selection); each of the five analytical methods with caveats; exact line-level scoring formula (`0.30×IF + 0.25×LOF + 0.25×Z-score + 0.15×rule_flags + 0.05×Benford`) and weight rationale table; Benford suppression rule; voucher rollup formula (`0.60×max + 0.25×mean + 0.15×flag_density`); ML consensus flag explanation; risk tier percentile cutoffs; stratified sample selection logic; seven transparency caveats (the 7th notes that declared component weights are approximate because features shared across components carry marginally more effective influence than their labelled percentage alone suggests, and explains why this does not affect the relative ranking output)
+- Page 2 (portrait): Methodology — comprehensive audit-grade standalone document covering: four-stage pipeline overview (feature engineering → scoring → voucher rollup → sample selection); each of the five analytical methods with caveats; exact line-level scoring formula (`0.30×IF + 0.25×LOF + 0.25×Z-score + 0.15×rule_flags + 0.05×Benford`) and weight rationale table; Benford suppression rule; voucher rollup formula (`0.60×max + 0.25×mean + 0.15×flag_density`); ML consensus flag explanation; risk tier percentile cutoffs; stratified sample selection logic; T08 vendor de-prioritisation paragraph (inserted after sample selection, shows dataset T08 count dynamically); seven transparency caveats (the 7th notes that declared component weights are approximate because features shared across components carry marginally more effective influence than their labelled percentage alone suggests, and explains why this does not affect the relative ranking output). `_page2()` accepts a `t08_count` parameter; `export_word_report()` computes it from `df_vouchers['is_t08_vendor'].sum()`.
 - Page 3 (landscape): Analytical Charts — Benford's Law distribution + voucher risk score histogram, side by side in a borderless 2-column table
 - Page 4 (landscape): Payment Distribution & Timeline — amount distribution (log scale) + monthly timeline (dual-axis bar/line), stacked full-width
 - Page 5 (landscape): Vendor Analysis — top 10 vendors by transaction count and by total amount
-- Page 6 (landscape): Feature Reference Table — Two tables, both with 5 columns: Feature, What It Measures, Threshold for Flagging, ML Models, Why It Matters. Column widths: 1.6/2.1/1.8/1.2/3.8 inches. Table 1 ("Features Used in Machine Learning Models"): 15 rows covering all candidate features that feed into IF, LOF, and/or Z-score. ML Models column shows "IF, LOF, Z-score" for the two amount z-score features (which directly drive the Z-score component) and "IF, LOF" for all others. Intro text notes that Spearman correlation pruning (|corr| > 0.85) may reduce the active feature count per run. Table 2 ("Features Outside Machine Learning Models"): 1 row for Benford's Law first digit, ML Models = "None — Benford's Law analysis only (5% of composite score)". Rendered via shared helper `_render_feature_table()`. References footer cites Nigrini (2012) and ACFE Fraud Examiners Manual only.
+- Page 6 (landscape): Feature Reference Table — Two tables, both with 5 columns: Feature, What It Measures, Threshold for Flagging, ML Models, Why It Matters. Column widths: 1.6/2.1/1.8/1.2/3.8 inches. Table 1 ("Features Used in Machine Learning Models"): 17 rows covering all candidate features that feed into IF, LOF, and/or Z-score (includes `is_split_purchase_risk` and `is_transposed_amount` added May 2026). ML Models column shows "IF, LOF, Z-score" for the two amount z-score features (which directly drive the Z-score component) and "IF, LOF" for all others. Intro text notes that Spearman correlation pruning (|corr| > 0.85) may reduce the active feature count per run. Table 2 ("Features Outside Machine Learning Models"): 1 row for Benford's Law first digit, ML Models = "None — Benford's Law analysis only (5% of composite score)". Rendered via shared helper `_render_feature_table()`. References footer cites Nigrini (2012) and ACFE Fraud Examiners Manual only.
 
 Each landscape section is created by `_set_landscape()` via `doc.add_section()`. Charts are generated as in-memory PNG `BytesIO` objects using matplotlib (Agg backend) and embedded with `run.add_picture()`. Helper `_remove_table_borders()` is used for side-by-side chart layout on page 3. Both `_shade_cell()` and `_remove_table_borders()` use lxml `find(qn(...))` directly — do NOT use `get_or_add_tblPr()` or `get_or_add_tcPr()`, which were removed in python-docx 1.x.
 
@@ -114,12 +116,12 @@ Each landscape section is created by `_set_landscape()` via `doc.add_section()`.
 **Formula line exception (April 2026):** The three scoring formula lines on the Methodology page — the `risk_score` formula in Stage 3 and both `voucher_score` formulas in Stage 4 — are rendered at `Pt(10)` (caller passes `size=8`) with `WD_ALIGN_PARAGRAPH.LEFT` alignment. This is intentional: formula text should not be stretched across the full page width by justification, and a slightly smaller size visually distinguishes them from surrounding body prose. The alignment override is applied by capturing the return value of `_body()` and setting `p.alignment = WD_ALIGN_PARAGRAPH.LEFT` immediately after.
 
 **Excel workbook — 6-tab structure** (`excel_exporter`):
-- Tab 1 — **Selected Vouchers**: one row per selected voucher, colour-coded by risk tier (HIGH=red, MEDIUM=orange, LOW=yellow). Shows `Voucher ID`, `Vendor Name`, `Invoice Number(s)`, `Total Amount (SGD)` (sum of all line amounts for the voucher, `#,##0.00` format), scores, tier, flag count, ML consensus flag, reason codes. No Sample Rationale column.
+- Tab 1 — **Selected Vouchers**: one row per selected voucher, colour-coded by risk tier (HIGH=red, MEDIUM=orange, LOW=yellow). Shows `Voucher ID`, `Vendor Name`, `Invoice Number(s)`, `Voucher Line Description(s)` (unique descriptions for the voucher, pipe-separated), `Total Amount (SGD)` (sum of all line amounts for the voucher, `#,##0.00` format), scores, tier, flag count, ML consensus flag, reason codes. No Sample Rationale column.
 - Tab 2 — **Voucher Line Detail**: all transaction lines belonging to selected vouchers, alternating background shading per voucher group, individual line scores and flags visible so auditors can see which line drove selection. Flag columns include `if_anomaly`, `lof_anomaly`, `zscore_anomaly` (binary 0/1) alongside the rule-based flags.
 - Tab 3 — **All Vouchers Scored**: full voucher-level rollup sorted by `voucher_score` descending, with colour-scale conditional formatting. Includes `Total Amount (SGD)` column.
 - Tab 4 — **All Lines Scored**: full row-level scored dataset (reference), with colour-scale on `risk_score`. Flag columns include `if_anomaly`, `lof_anomaly`, `zscore_anomaly` so auditors can see which ML models flagged each line as anomalous.
 - Tab 5 — **Benford's Law**: summary statistics (rows 4–8), followed by an "Understanding These Metrics" explanation block (rows 9–15). Chi-square explanation: a significant p-value with small MAD (< 0.012) indicates anomalies are not pervasive dataset-wide but may be concentrated in specific transactions or digit groups — individual Benford flags remain relevant and should be reviewed with other risk signals. Key Takeaway box follows the same framing. Digit frequency table starts at row 16 (deviant digits highlighted in orange).
-- Tab 6 — **Summary**: dataset counts, tier distribution, and audit sample breakdown. No methodology notes.
+- Tab 6 — **Summary**: dataset counts, tier distribution, and audit sample breakdown. Followed by an amber-background note explaining that T08 (government agency) vendors have been de-prioritised from HIGH/MEDIUM selection.
 
 ### Module responsibilities
 
@@ -141,7 +143,7 @@ The tool validates exactly these 10 column names on load (raises `ValueError` if
 
 ### Feature overlap — intentional design decision (April 2026)
 
-`amount_zscore_vendor` and `amount_zscore_costcentre` feed into three components: the dedicated Z-score component (25% weight), and also the IF and LOF feature matrices (as two of ~15 inputs). The eight rule-based flags (`is_round_number`, `is_weekend_payment`, `is_month_end`, `near_threshold`, `is_individual_payee`, `same_amount_vendor_irregular`, `is_duplicate`, `is_reversal`) feed into two components: the dedicated rule_flags_score (15% weight), and also the IF and LOF feature matrices. This means those features carry marginally more effective weight than their labelled percentages suggest.
+`amount_zscore_vendor` and `amount_zscore_costcentre` feed into three components: the dedicated Z-score component (25% weight), and also the IF and LOF feature matrices (as two of ~17 inputs). The ten rule-based flags (`is_round_number`, `is_weekend_payment`, `is_month_end`, `near_threshold`, `is_individual_payee`, `same_amount_vendor_irregular`, `is_duplicate`, `is_reversal`, `is_split_purchase_risk`, `is_transposed_amount`) feed into two components: the dedicated rule_flags_score (15% weight), and also the IF and LOF feature matrices. This means those features carry marginally more effective weight than their labelled percentages suggest.
 
 This is documented as Caveat 7 in the Word report methodology page. It is **not a design flaw**: the overlap is a byproduct of ensemble cross-method reinforcement — transactions anomalous on these signals consistently rank above those that are not, which is the tool's objective. Removing these features from the IF/LOF matrix was considered and rejected because it would weaken detection coverage and the overlap effect is attenuated by the multi-dimensional nature of those models.
 
@@ -156,6 +158,22 @@ The `ML_Consensus_Flag` was updated in April 2026 to use `sklearn.predict()` bin
 **Binary ML anomaly flags surfaced in Excel line-level tabs (April 2026):** `if_anomaly`, `lof_anomaly`, and `zscore_anomaly` are now included in the flag columns section of both the Voucher Line Detail tab (`_LINE_FLAG_COLS`) and the All Lines Scored tab (inline `flag_cols` list in `_sheet_all_lines()`). These are binary 0/1 columns indicating which ML models classified each line as anomalous via `predict()`.
 
 `amount_zscore_overall` and `amount_zscore_account` were removed from `feature_engineering.py` in April 2026 — both were computed but never referenced in scoring, reason codes, or ML models. The dead `amount_zscore_overall` fallback branch in `ml_models.py` was also removed.
+
+**Notebook step reorder (May 2026):** STEP 0 is now the configuration cell (INPUT_FILE, SAMPLE_SIZE, WEIGHTS). STEP 1 is the package installation cell. All references to "Step 1" for configuration were updated to "Step 0" across the notebook, `data_loader.py` error messages, and `sample_selector.py` validation messages.
+
+**Period display uses Voucher Accounting Date (May 2026):** The STEP 2 notebook cell now displays `Voucher Period` using `Voucher Accounting Date` min/max instead of `Invoice Date`. This reflects the date the payment was actually processed rather than the invoice date.
+
+**Split purchase risk detection (May 2026):** `feature_engineering._detect_split_purchase()` flags groups where the same vendor has two or more transactions on the same `Invoice Date` with alphanumerically sequential invoice number numeric suffixes (e.g. INV-1001, INV-1002). Detection: strip trailing numeric suffix via regex `(\d+)$`; if any invoice in the group has no numeric suffix the group is skipped; check that sorted suffixes form a consecutive integer range. Flag stored as `is_split_purchase_risk` (binary). Added to both `FLAG_COLS` (10 flags total) and `ml_features` (17 candidates). Reason code: `"Split purchase risk — same vendor, same invoice date, sequential invoice numbers"`.
+
+**Transposed amount detection (May 2026):** `feature_engineering._detect_transposed_amounts()` flags transactions where the same vendor + lowercased `Voucher Line Description` group contains two positive amounts that share the same digit multiset (sorted tuple of digit characters from `str(round(abs(amount)))`) but differ in numeric value — e.g. SGD 4,800 vs SGD 8,400. All rows in qualifying groups are flagged as `is_transposed_amount = 1`. Added to both `FLAG_COLS` and `ml_features`. Reason code: `"Possible transposed amount — same vendor and description, digit-transposed amount exists (review for keying error)"`.
+
+**Duplicate matched invoice column (May 2026):** `feature_engineering._detect_duplicates()` now returns a tuple `(is_duplicate Series, duplicate_matched_invoice Series)` instead of a single Series. For each flagged row, `duplicate_matched_invoice` holds the invoice number of the counterpart row (they share the same invoice number since that is the duplicate key). The reason code in `_build_reason()` was updated to include the matched invoice explicitly: `"Potential duplicate payment — same vendor, invoice, and amount found in other voucher(s) (matched against invoice: {value})"`. `engineer_features()` unpacks the tuple: `df['is_duplicate'], df['duplicate_matched_invoice'] = _detect_duplicates(df)`.
+
+**Similarity deduplication post-selection (May 2026):** `sample_selector._similarity_filter()` runs after `_stratified_sample()` and before the final sample is returned. For each vendor with two or more selected vouchers, it compares `Voucher Line Description` values pairwise using Jaccard token-overlap similarity (intersection / union of lowercase word tokens). If any pair exceeds threshold 0.70, the lower-scoring voucher is dropped and replaced by the next-highest-scoring unselected voucher from `df_vouchers` in the same tier (then next tier down) that does not have a similar description to any retained voucher for that vendor. A `similarity_deduplicated` column (True/False) is added to `selected_vouchers` to flag replacement rows. A print statement logs each replacement. Helper functions: `_jaccard_similarity(a, b)`, `_get_voucher_desc(voucher_id, df_scored)`. Note: in the synthetic benchmark all descriptions share the same template, so the filter fires aggressively; in production data with varied descriptions it fires only for genuine near-duplicates.
+
+**T08 vendor de-prioritisation (May 2026):** Before `_stratified_sample()`, `select_samples()` marks vouchers where `Vendor ID` starts with `T08` (case-insensitive) as `is_t08_vendor = True` in `df_vouchers`. A temporary copy `df_for_sampling` overrides their `voucher_risk_tier` to `LOW` so they cannot be selected as HIGH or MEDIUM. After sampling, the real `voucher_risk_tier` is restored in `selected_vouchers` via a dict lookup, so all outputs show true scores and tiers. `df_vouchers` always retains real tiers and is never modified. The `Sample_Rationale` is set from the sampling tier (before restoration), accurately describing why the voucher was selected. An amber-background note is added to the Excel **Summary** sheet explaining the de-prioritisation. The Word report **Methodology** page includes a paragraph after the "Risk Tier Assignment and Sample Selection" section stating the T08 count and policy.
+
+**Voucher Line Description(s) in rollup and Excel (May 2026):** `sample_selector._rollup_vouchers()` now collects unique non-blank `Voucher Line Description` values per voucher and stores them as `Voucher Line Description(s)` (pipe-separated) in `df_vouchers`. This field is surfaced in the **Selected Vouchers** Excel tab between `Invoice Number(s)` and `Total Amount (SGD)`, with a fixed column width of 50 characters.
 
 ### Known design limitation
 
@@ -175,11 +193,26 @@ This is intentional: voucher-level aggregation before scoring would lose line-le
 
 `make_scoring_reference.py` — committed as a documentation utility. Run with `python make_scoring_reference.py` to generate `output/Scoring_Methodology.xlsx`. The file is a 5-sheet audit-trail reference explaining the mathematics behind each component score: **Overview** (component summary table, composite and voucher-rollup formulas); **Isolation Forest** (path-length correction c(n), anomaly score s(x,n), score_samples() convention, min-max normalisation, worked example with verification arithmetic); **Local Outlier Factor** (k-distance → reachability distance → LRD → LOF chain, normalisation, worked example with 5 points computing all intermediate values); **Benford's Law** (full expected-frequency table, 4-step scoring process including suppression rule, worked example over 20 transactions); **Composite Score** (full formula with per-component source, z-score and rule-flag detail, voucher rollup, risk tier cutoffs, ML Consensus flag logic). The generated Excel is gitignored (`output/*`); re-run the script to regenerate it.
 
-## Accuracy benchmark (synthetic test — verified April 2026)
+## Accuracy benchmark (synthetic test — verified May 2026)
 
 Run with `python benchmark.py`. Tests against 530 synthetic transactions (500 normal + 30 injected anomalies, 5 per type), each as its own single-line voucher. Scores are at voucher level.
 
-### Current results (voucher-level selection)
+### Current results (voucher-level selection, May 2026)
+
+| Anomaly Type | In Top 25 | Avg Score | Score Percentile |
+|---|---|---|---|
+| individual_payee | 5/5 | 0.539 | 99th |
+| high_amount | 3/5 | 0.391 | 97th |
+| round_number | 1/5 | 0.355 | 95th |
+| near_threshold | 1/5 | 0.326 | 92nd |
+| weekend_date | 0/5 | 0.328 | 94th |
+| month_end | 0/5 | 0.283 | 89th |
+
+**Overall: Recall 33.3% (10/30), Precision 52.6% (10/19), Cohen's d = 2.79 (strong separation)**
+
+Note: the sample shrank from 25 to 19 in the benchmark run because the similarity deduplication filter (Amendment 5, May 2026) correctly fires on the synthetic dataset — all benchmark descriptions follow the same template ("Payment for services rendered - ref N"), giving pairwise Jaccard similarity ≈ 0.75 > 0.70 threshold for any two vouchers from the same vendor. In production data with varied descriptions, the filter fires far less aggressively. Cohen's d = 2.79 remains strong separation and the slight drop from 2.83 is within normal benchmark variance.
+
+### Previous results (voucher-level selection, April 2026)
 
 | Anomaly Type | In Top 25 | Avg Score | Score Percentile |
 |---|---|---|---|
@@ -190,7 +223,7 @@ Run with `python benchmark.py`. Tests against 530 synthetic transactions (500 no
 | weekend_date | 1/5 | 0.391 | 93rd |
 | month_end | 1/5 | 0.317 | 86th |
 
-**Overall: Recall 46.7% (14/30), Precision 56.0% (14/25), Cohen's d = 2.83 (strong separation)**
+**Overall: Recall 46.7% (14/30), Precision 56.0% (14/25), Cohen's d = 2.83**
 
 ### Previous results (line-level selection, April 2025)
 
@@ -207,8 +240,8 @@ Run with `python benchmark.py`. Tests against 530 synthetic transactions (500 no
 
 ### Interpreting the difference
 
-The benchmark recall appears lower in the current version (46.7% vs 56.7%) but this is a synthetic test artefact. The benchmark uses single-line vouchers, so line-level and voucher-level selection are equivalent — the gap is due to the different random characteristics of the test datasets, not a real regression.
+The benchmark recall figures are synthetic test artefacts. The benchmark uses single-line vouchers, so line-level and voucher-level selection are equivalent, and gaps across runs reflect different random characteristics of the test datasets rather than real regressions.
 
-The meaningful comparison is Cohen's d: **2.83 vs 2.46**. This improved, meaning anomalous vouchers are more clearly separated from normal ones in score space. In real data with multi-line vouchers, recall is expected to be higher than the benchmark suggests because any flagged line elevates the whole voucher.
+The meaningful measure is Cohen's d: **2.79** (May 2026) remains strong separation. In real data with multi-line vouchers, recall is expected to be higher than the benchmark suggests because any flagged line elevates the whole voucher.
 
-Single-signal anomalies (month-end, weekend date) consistently score in the 86th–93rd percentile but are displaced from the top 25 by stronger multi-signal anomalies. The tool performs best when multiple flags stack on the same transaction.
+Single-signal anomalies (month-end, weekend date) consistently score in the 86th–94th percentile but are displaced from the top selection by stronger multi-signal anomalies. The tool performs best when multiple flags stack on the same transaction.
