@@ -62,6 +62,7 @@ def _safe_value(value):
 
 _VCH_DISPLAY_COLS = [
     'Voucher ID', 'Vendor ID', 'Vendor Name', 'Invoice Number(s)',
+    'Voucher Line Description(s)',
     'voucher_total_amount', 'voucher_line_count', 'voucher_score', 'voucher_risk_tier',
     'voucher_flag_count', 'voucher_any_ml_consensus',
     'voucher_reason_codes',
@@ -69,6 +70,7 @@ _VCH_DISPLAY_COLS = [
 
 _VCH_HEADERS = [
     'Voucher ID', 'Vendor ID', 'Vendor Name', 'Invoice Number(s)',
+    'Voucher Line Description(s)',
     'Total Amount (SGD)', 'Line Count', 'Voucher Score', 'Risk Tier',
     'Flag Count', 'ML Consensus', 'Reason Codes',
 ]
@@ -108,6 +110,10 @@ def _sheet_selected_vouchers(wb, selected_vouchers):
     _auto_width(ws)
     n = len(headers)
     ws.column_dimensions[get_column_letter(n)].width = 60       # Reason Codes
+    # Fix width for Voucher Line Description(s) column
+    if 'Voucher Line Description(s)' in headers:
+        desc_col = headers.index('Voucher Line Description(s)') + 1
+        ws.column_dimensions[get_column_letter(desc_col)].width = 50
 
 
 # ---------------------------------------------------------------------------

@@ -214,11 +214,19 @@ def _rollup_vouchers(df):
             .unique().tolist()
         )
 
+        # Collect all distinct, non-blank Voucher Line Descriptions
+        line_descs = (
+            grp['Voucher Line Description'].astype(str).str.strip()
+            .pipe(lambda s: s[~s.isin(['', 'nan', 'NaN', 'None'])])
+            .unique().tolist()
+        )
+
         records.append({
-            'Voucher ID':               str(voucher_id),
-            'Vendor ID':                top_line.get('Vendor ID', ''),
-            'Vendor Name':              top_line.get('Vendor Name', ''),
-            'Invoice Number(s)':        ', '.join(inv_nums),
+            'Voucher ID':                    str(voucher_id),
+            'Vendor ID':                     top_line.get('Vendor ID', ''),
+            'Vendor Name':                   top_line.get('Vendor Name', ''),
+            'Invoice Number(s)':             ', '.join(inv_nums),
+            'Voucher Line Description(s)':   ' | '.join(line_descs),
             'voucher_total_amount':     round(float(grp[AMOUNT_COL].sum()), 2),
             'voucher_line_count':       line_count,
             'voucher_max_score':        round(max_score, 4),
