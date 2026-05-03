@@ -141,6 +141,7 @@ _LINE_FLAG_COLS = [
     'is_round_number', 'is_weekend_payment', 'is_month_end',
     'near_threshold', 'is_individual_payee',
     'same_amount_vendor_irregular', 'is_duplicate', 'is_reversal',
+    'is_split_purchase_risk', 'is_transposed_amount',
     'is_recurring_payment', 'benford_flag', 'processing_days',
     'if_anomaly', 'lof_anomaly', 'zscore_anomaly',
 ]
@@ -291,6 +292,7 @@ def _sheet_all_lines(wb, df_scored):
         'is_round_number', 'is_weekend_payment', 'is_month_end',
         'near_threshold', 'is_individual_payee',
         'same_amount_vendor_irregular', 'is_duplicate', 'is_reversal',
+        'is_split_purchase_risk', 'is_transposed_amount',
         'is_recurring_payment', 'benford_flag', 'processing_days',
         'if_anomaly', 'lof_anomaly', 'zscore_anomaly',
     ] if c in df_scored.columns]
