@@ -496,7 +496,7 @@ def _page2(doc, t08_count=0):
 
     _heading(doc, "5. Rule-Based Flags", level=2)
     _body(doc,
-          "Eight binary rules derived from established forensic audit practice. Each triggers a "
+          "Ten binary rules derived from established forensic audit practice. Each triggers a "
           "flag (1) or not (0) per transaction line:",
           size=10)
     rules = [
@@ -521,6 +521,14 @@ def _page2(doc, t08_count=0):
         "Reversal or credit note — payment amount is negative. Reversals and credit notes are "
         "legitimate but warrant review, particularly when paired with other risk signals on the "
         "corresponding original payment.",
+        "Split purchase risk — the same vendor has two or more invoices on the same invoice date "
+        "with alphanumerically sequential invoice number suffixes (e.g. INV-1001, INV-1002). "
+        "May indicate a single purchase deliberately split across multiple invoices to avoid "
+        "triggering a higher-level approval threshold.",
+        "Transposed amount — the payment amount shares the same digit composition as another "
+        "transaction to the same vendor with the same description but differs in numeric value "
+        "(e.g. SGD 4,800 vs SGD 8,400). May indicate a keying error resulting in over- or "
+        "under-payment.",
     ]
     for rule in rules:
         _bullet(doc, rule, size=10)
@@ -541,7 +549,7 @@ def _page2(doc, t08_count=0):
     p.alignment = WD_ALIGN_PARAGRAPH.LEFT
     doc.add_paragraph()
     _body(doc,
-          "The rule flags score is the fraction of the 8 binary rules triggered for that line "
+          "The rule flags score is the fraction of the 10 binary rules triggered for that line "
           "(e.g. 2 rules triggered = 2/8 = 0.25). The Benford score is normalised relative to "
           "the maximum Benford deviation in the dataset. The Z-score signal is the larger of the "
           "vendor z-score and cost centre z-score, min-max normalised to [0, 1] across all lines.",
@@ -628,7 +636,7 @@ def _page2(doc, t08_count=0):
     doc.add_paragraph()
     _body(doc,
           "Flag density = total rule flags triggered across all lines in the voucher ÷ "
-          "(8 flag types × number of lines). The 60/25/15 split reflects that audit significance "
+          "(10 flag types × number of lines). The 60/25/15 split reflects that audit significance "
           "is primarily driven by the worst line in the voucher, moderated by whether other lines "
           "are also elevated, and supplemented by the breadth of rule flag coverage. For multi-line "
           "vouchers, reason codes in the output are prefixed with [Account Code] so auditors can "
