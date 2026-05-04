@@ -113,7 +113,8 @@ def _build_reason(row):
         parts.append("Split purchase risk — same vendor, same invoice date, sequential invoice numbers")
 
     if row.get('is_transposed_amount', 0):
-        parts.append("Possible transposed amount — same vendor and description, digit-transposed amount exists (review for keying error)")
+        matched = str(row.get('transposed_matched_invoice', '') or '(no invoice number)').strip() or '(no invoice number)'
+        parts.append(f"Possible transposed amount — same vendor and description, digit-transposed amount exists (matched against invoice: {matched}) (review for keying error)")
 
     pt = row.get('processing_days_zscore', 0)
     if pt > 2.5:

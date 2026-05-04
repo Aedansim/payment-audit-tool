@@ -131,16 +131,19 @@ def _detect_split_purchase(df):
 
 def _detect_transposed_amounts(df):
     """Flag transactions where same vendor and description have digit-transposed amounts —
-    same digit multiset but different numeric value, suggesting a keying error."""
+    same digit multiset but different numeric value, suggesting a keying error.
+    Returns (is_transposed Series, transposed_matched_invoice Series)."""
     result = pd.Series(0, index=df.index)
+    matched_inv = pd.Series('', index=df.index, dtype=object)
     pos_mask = df[AMOUNT_COL] > 0
     if not pos_mask.any():
-        return result
+        return result, matched_inv
     pos = df[pos_mask].copy()
     pos['_desc_key'] = pos['Voucher Line Description'].astype(str).str.strip().str.lower()
     pos['_digit_set'] = pos[AMOUNT_COL].apply(
         lambda x: tuple(sorted(str(round(abs(x)))))
     )
+    inv_series = df['Invoice Number'].astype(str).str.strip()
     for (vid, desc), grp in pos.groupby(['Vendor ID', '_desc_key'], sort=False):
         if len(grp) < 2:
             continue
@@ -152,7 +155,11 @@ def _detect_transposed_amounts(df):
                 if digit_sets[i] == digit_sets[j] and amounts[i] != amounts[j]:
                     result.loc[idxs[i]] = 1
                     result.loc[idxs[j]] = 1
-    return result
+                    if not matched_inv.loc[idxs[i]]:
+                        matched_inv.loc[idxs[i]] = inv_series.loc[idxs[j]]
+                    if not matched_inv.loc[idxs[j]]:
+                        matched_inv.loc[idxs[j]] = inv_series.loc[idxs[i]]
+    return result, matched_inv
 
 
 def _prune_correlated(df, features, threshold=0.85):
@@ -243,7 +250,7 @@ def engineer_features(df):
     print(f"  Found {n_split:,} transactions with split purchase risk.")
 
     print("  Detecting transposed amounts (same vendor and description, digit-transposed value)...")
-    df['is_transposed_amount'] = _detect_transposed_amounts(df)
+    df['is_transposed_amount'], df['transposed_matched_invoice'] = _detect_transposed_amounts(df)
     n_trans = int(df['is_transposed_amount'].sum())
     print(f"  Found {n_trans:,} transactions with possible transposed amounts.")
 
