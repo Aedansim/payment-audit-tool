@@ -269,6 +269,7 @@ def _chart_top_vendors(df):
     ax2.set_xlabel('Total Amount (SGD)')
     ax2.set_title('Top 10 Vendors by Total Amount',
                   fontsize=10, fontweight='bold', color=_HEX['navy'])
+    ax2.xaxis.set_major_locator(mticker.MaxNLocator(nbins=4, integer=True))
     ax2.xaxis.set_major_formatter(
         mticker.FuncFormatter(lambda v, _: f'{v:,.0f}'))
     ax2.grid(axis='x', alpha=0.3)
