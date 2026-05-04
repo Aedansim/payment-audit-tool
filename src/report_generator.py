@@ -408,9 +408,9 @@ def _page2(doc, t08_count=0):
           "(potential duplicate payment); whether the payment is a negative-amount reversal or "
           "credit note; whether the same amount recurs to the same vendor without a regular "
           "schedule; whether the vendor issued two or more sequentially numbered invoices on the "
-          "same date (split purchase risk); and whether the payment amount shares the same digit "
-          "composition as another transaction to the same vendor with the same description but a "
-          "different numeric value (transposed amount — keying error risk).",
+          "same date (split purchase risk); and whether the payment amount differs from another "
+          "transaction to the same vendor with the same description by exactly one pair of "
+          "transposed digits in the full amount including cents (transposed amount — keying error risk).",
           size=10)
     _body(doc,
           "Caveat: Recurring payments (monthly, quarterly, semi-annual, annual cycles) are detected "
@@ -525,10 +525,10 @@ def _page2(doc, t08_count=0):
         "with alphanumerically sequential invoice number suffixes (e.g. INV-1001, INV-1002). "
         "May indicate a single purchase deliberately split across multiple invoices to avoid "
         "triggering a higher-level approval threshold.",
-        "Transposed amount — the payment amount shares the same digit composition as another "
-        "transaction to the same vendor with the same description but differs in numeric value "
-        "(e.g. SGD 4,800 vs SGD 8,400). May indicate a keying error resulting in over- or "
-        "under-payment.",
+        "Transposed amount — the payment amount differs from another transaction to the same vendor "
+        "with the same description by exactly one pair of transposed digits in the full cent-level "
+        "amount (e.g. SGD 4,800 vs SGD 8,400). May indicate a keying error resulting in significant "
+        "over- or under-payment if left undetected.",
     ]
     for rule in rules:
         _bullet(doc, rule, size=10)
@@ -550,7 +550,7 @@ def _page2(doc, t08_count=0):
     doc.add_paragraph()
     _body(doc,
           "The rule flags score is the fraction of the 10 binary rules triggered for that line "
-          "(e.g. 2 rules triggered = 2/8 = 0.25). The Benford score is normalised relative to "
+          "(e.g. 2 rules triggered = 2/10 = 0.20). The Benford score is normalised relative to "
           "the maximum Benford deviation in the dataset. The Z-score signal is the larger of the "
           "vendor z-score and cost centre z-score, min-max normalised to [0, 1] across all lines.",
           size=10)
@@ -934,8 +934,10 @@ ML_FEATURE_TABLE_DATA = [
     (
         "Transposed amount",
         "Whether the same vendor and description group contains another transaction whose amount "
-        "has the same set of digits but arranged in a different order (e.g. SGD 4,800 vs SGD 8,400).",
-        "Same digit multiset but different numeric value within same vendor + description group (positive amounts only)",
+        "differs by exactly one pair of transposed digits in the full cent-level amount "
+        "(e.g. SGD 4,800 vs SGD 8,400, or SGD 123.45 vs SGD 123.54).",
+        "Exactly two digit positions swapped in the cent-integer string (str(int(round(amount × 100)))) "
+        "within same vendor + description group (positive amounts only)",
         "IF, LOF",
         "Digit transpositions are a common keying error that can result in significant over- or "
         "under-payment if left undetected. They are also occasionally used to conceal deliberate "
