@@ -129,9 +129,20 @@ def _detect_split_purchase(df):
     return result
 
 
+def _is_digit_transposition(a, b):
+    """Return True if two positive amounts differ by exactly one digit-position swap.
+    Operates on cent-integer strings so decimal places are included in the comparison."""
+    a_str = str(int(round(a * 100)))
+    b_str = str(int(round(b * 100)))
+    if len(a_str) != len(b_str):
+        return False
+    diffs = [(ca, cb) for ca, cb in zip(a_str, b_str) if ca != cb]
+    return len(diffs) == 2 and diffs[0][0] == diffs[1][1] and diffs[0][1] == diffs[1][0]
+
+
 def _detect_transposed_amounts(df):
     """Flag transactions where same vendor and description have digit-transposed amounts —
-    same digit multiset but different numeric value, suggesting a keying error.
+    exactly two digit positions swapped in the cent-integer representation, suggesting a keying error.
     Returns (is_transposed Series, transposed_matched_invoice Series)."""
     result = pd.Series(0, index=df.index)
     matched_inv = pd.Series('', index=df.index, dtype=object)
@@ -140,19 +151,15 @@ def _detect_transposed_amounts(df):
         return result, matched_inv
     pos = df[pos_mask].copy()
     pos['_desc_key'] = pos['Voucher Line Description'].astype(str).str.strip().str.lower()
-    pos['_digit_set'] = pos[AMOUNT_COL].apply(
-        lambda x: tuple(sorted(str(round(abs(x)))))
-    )
     inv_series = df['Invoice Number'].astype(str).str.strip()
     for (vid, desc), grp in pos.groupby(['Vendor ID', '_desc_key'], sort=False):
         if len(grp) < 2:
             continue
         idxs = grp.index.tolist()
         amounts = grp[AMOUNT_COL].tolist()
-        digit_sets = grp['_digit_set'].tolist()
         for i in range(len(idxs)):
             for j in range(i + 1, len(idxs)):
-                if digit_sets[i] == digit_sets[j] and amounts[i] != amounts[j]:
+                if _is_digit_transposition(amounts[i], amounts[j]):
                     result.loc[idxs[i]] = 1
                     result.loc[idxs[j]] = 1
                     if not matched_inv.loc[idxs[i]]:
