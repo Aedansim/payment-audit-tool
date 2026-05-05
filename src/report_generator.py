@@ -889,11 +889,10 @@ ML_FEATURE_TABLE_DATA = [
         "detect via z-score alone.",
         "Continuous (higher = more variable)",
         "IF, LOF",
-        "The vendor z-score flags payments that are unusually large relative to a vendor's own billing history. "
-        "However, for vendors whose invoice amounts vary widely from month to month, "
-        "the standard deviation is naturally large — which means the z-score threshold becomes harder to breach even for genuinely "
-        "suspicious payments. The CV measures this variability directly. A high CV signals to the ML models that the z-score alone is a "
-        "less reliable signal for this vendor, prompting them to weigh other features more heavily when assessing anomalies within that vendor's transactions. ",
+        "The vendor z-score compares each payment against the vendor's own billing history. "
+        "For vendors with highly variable invoices, the standard deviation is naturally wide, making it harder "
+        "for suspicious payments to breach the z-score threshold. The CV feature measures this variability — a high CV "
+        "tells the ML models that the z-score signal is less reliable for that vendor, prompting greater weight to be placed on other features. ",
     ),
     (
         "Vendor transaction count",
