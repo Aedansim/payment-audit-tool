@@ -44,6 +44,7 @@ _HEX = {
 def _heading(doc, text, level=1):
     p = doc.add_heading(text, level=level)
     p.runs[0].font.color.rgb = NAVY
+    p.runs[0].font.name = 'Times New Roman'
     return p
 
 
@@ -52,6 +53,7 @@ def _body(doc, text, bold=False, italic=False, size=10):
     p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
     run = p.add_run(text)
     run.font.size = Pt(size + 2)
+    run.font.name = 'Times New Roman'
     run.bold = bold
     run.italic = italic
     run.font.color.rgb = GREY
@@ -63,6 +65,7 @@ def _bullet(doc, text, size=10):
     p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
     run = p.add_run(text)
     run.font.size = Pt(size + 2)
+    run.font.name = 'Times New Roman'
     run.font.color.rgb = GREY
     return p
 
@@ -73,9 +76,11 @@ def _coloured_para(doc, label, value, colour=NAVY, size=11):
     r1 = p.add_run(label + ": ")
     r1.bold = True
     r1.font.size = Pt(size + 2)
+    r1.font.name = 'Times New Roman'
     r1.font.color.rgb = NAVY
     r2 = p.add_run(str(value))
     r2.font.size = Pt(size + 2)
+    r2.font.name = 'Times New Roman'
     r2.font.color.rgb = colour
     return p
 
@@ -324,6 +329,7 @@ def _page1(doc, df, df_vouchers, selected_vouchers, benford_stats):
         tbl.rows[i].cells[0].paragraphs[0].runs[0].bold = True
         for cell in tbl.rows[i].cells:
             cell.paragraphs[0].runs[0].font.size = Pt(12)
+            cell.paragraphs[0].runs[0].font.name = 'Times New Roman'
             cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
             if i % 2 == 0:
                 _shade_cell(cell, "F2F6FC")
@@ -365,8 +371,10 @@ def _page1(doc, df, df_vouchers, selected_vouchers, benford_stats):
         r1 = p.add_run(f"{label}: ")
         r1.bold = True
         r1.font.size = Pt(12)
+        r1.font.name = 'Times New Roman'
         r2 = p.add_run(value)
         r2.font.size = Pt(12)
+        r2.font.name = 'Times New Roman'
 
     doc.add_paragraph()
     _body(doc,
@@ -507,14 +515,13 @@ def _page2(doc, t08_count=0):
         "genuine invoices (Nigrini, 2012; ACFE Fraud Examiners Manual).",
         "Weekend payment — invoice dated on a Saturday or Sunday. "
         "Payments outside business hours may bypass the normal multi-person review process.",
-        "Month-end — invoice in the last 3 calendar days of the month. May indicate rushed "
-        "processing to meet budget targets or period-end financial reporting cut-offs.",
+        "Month-end — voucher accounting date in the last 3 calendar days of the month. May indicate "
+        "rushed processing to meet budget targets or period-end financial reporting cut-offs.",
         "Near approval threshold — within 5% below SGD 1K / 5K / 10K / 50K / 100K. Known as "
         "'structuring' in forensic accounting — deliberately keeping amounts below authorisation "
         "thresholds to avoid triggering higher-level approval.",
         "Individual payee — Vendor ID matches the Singapore NRIC/FIN format (one letter, 7 digits, "
-        "one letter). Payments to individuals carry higher inherent risk as they bypass standard "
-        "vendor registration and procurement controls.",
+        "one letter). Payments to individuals carry higher inherent risk versus registered businesses.",
         "Irregular repeated amount — same amount paid to the same vendor more than twice with no "
         "detected regular monthly/quarterly/annual schedule. May indicate split or duplicate payments.",
         "Duplicate payment — the same invoice number, vendor, and amount appears across more than "
@@ -591,6 +598,7 @@ def _page2(doc, t08_count=0):
         cell.text = label
         cell.paragraphs[0].runs[0].bold = True
         cell.paragraphs[0].runs[0].font.size = Pt(11)
+        cell.paragraphs[0].runs[0].font.name = 'Times New Roman'
         cell.paragraphs[0].runs[0].font.color.rgb = WHITE
         cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         _shade_cell(cell, "1F3864")
@@ -603,6 +611,7 @@ def _page2(doc, t08_count=0):
             cell = row.cells[col_idx]
             cell.text = value
             cell.paragraphs[0].runs[0].font.size = Pt(11)
+            cell.paragraphs[0].runs[0].font.name = 'Times New Roman'
             cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
             _shade_cell(cell, shade)
             cell.width = width
@@ -695,41 +704,24 @@ def _page2(doc, t08_count=0):
           "The following limitations should be understood before acting on the tool's output:",
           size=10)
     caveats = [
-        "Risk prioritisation, not fraud evidence — a high voucher score indicates a statistically "
-        "unusual transaction that warrants examination. It does not constitute evidence of fraud "
-        "or error. All selected vouchers require professional judgement to assess.",
+        "Not a fraud detection tool — a high voucher score indicates a statistically unusual "
+        "transaction that warrants attention; it is not evidence of fraud or error. Professional "
+        "judgement is required for all selected vouchers. Transactions not flagged should not be "
+        "assumed free from irregularities, as sophisticated anomalies that closely mimic normal "
+        "payment patterns may go undetected.",
         "Line-item scope — the tool scores individual transaction lines, not total voucher amounts. "
         "A large voucher split across many small lines of normal individual amounts may not score "
         "highly even if the total is anomalous. Auditors should review total voucher values "
         "alongside individual line scores.",
-        "Unsupervised models — Isolation Forest and LOF identify outliers relative to the dataset "
-        "provided. If the dataset contains pervasive irregularities, both models may treat them "
-        "as normal because they resemble the majority. They are most effective when most "
-        "transactions are legitimate.",
-        "Benford reliability — the analysis is most meaningful for several hundred or more "
-        "non-recurring transactions. Small datasets or datasets with narrow amount ranges "
-        "produce less reliable Benford results.",
         "Pre-calibrated weights — component weights and rule thresholds are calibrated for typical "
         "corporate payment datasets. Unusual compositions (e.g. predominantly recurring payments, "
-        "narrow amount bands) may require recalibration. Weights can be overridden by setting "
+        "narrow amount bands) may require recalibration. Weights can be overridden via "
         "'sample_selector.WEIGHTS' before calling select_samples().",
-        "Not a fraud detection tool — the tool has not been trained on confirmed fraud cases "
-        "from this organisation. It identifies unusual patterns by learning the normal behaviour "
-        "of the organisation's data. Real-world performance depends on the nature and prevalence "
-        "of anomalies present in the data. Transactions not flagged by the tool should not be "
-        "interpreted as confirmation that they are free from irregularities, as sophisticated "
-        "anomalies that closely mimic normal payment patterns may not be detected. Auditors "
-        "should not rely on the tool to detect fraud but should exercise professional judgement "
-        "in investigating unusual transactions identified.",
-        "Declared component weights are approximate — the five component weights describe the "
-        "intended relative importance of each analytical method, not precisely isolated "
-        "statistical contributions. Features shared across components — amount z-scores and "
-        "rule flags appear both in their dedicated scoring components and as inputs to Isolation "
-        "Forest and LOF — carry marginally more effective influence than their labelled "
-        "percentage alone suggests. This does not affect the tool's output in practice: the "
-        "tool produces a relative ranking of vouchers within the dataset, and transactions that "
-        "are genuinely anomalous across multiple dimensions will consistently rank above those "
-        "that are not, regardless of the precise effective weight of any individual feature.",
+        "Declared component weights are approximate — the five weights describe intended relative "
+        "importance, not precisely isolated statistical contributions. Features shared across "
+        "components (amount z-scores and rule flags feed both their dedicated scoring components "
+        "and Isolation Forest/LOF) carry marginally more effective influence than their labelled "
+        "weight suggests. This does not affect the relative voucher rankings in practice.",
     ]
     for caveat in caveats:
         _bullet(doc, caveat, size=10)
@@ -850,7 +842,7 @@ ML_FEATURE_TABLE_DATA = [
     ),
     (
         "Month-end",
-        "Whether the invoice is dated in the last 3 calendar days of the month.",
+        "Whether the voucher accounting date falls in the last 3 calendar days of the month.",
         "Last 3 calendar days of month",
         "IF, LOF",
         "May indicate rushed processing to meet budget targets or period-end financial reporting cut-offs.",
@@ -897,8 +889,11 @@ ML_FEATURE_TABLE_DATA = [
         "detect via z-score alone.",
         "Continuous (higher = more variable)",
         "IF, LOF",
-        "Surfaces vendors whose billing amounts vary significantly month-to-month, closing the gap where "
-        "z-score thresholds become permissive due to high natural variance.",
+        "The vendor z-score flags payments that are unusually large relative to a vendor's own billing history. "
+        "However, for vendors whose invoice amounts vary widely from month to month, "
+        "the standard deviation is naturally large — which means the z-score threshold becomes harder to breach even for genuinely "
+        "suspicious payments. The CV measures this variability directly. A high CV signals to the ML models that the z-score alone is a "
+        "less reliable signal for this vendor, prompting them to weigh other features more heavily when assessing anomalies within that vendor's transactions. ",
     ),
     (
         "Vendor transaction count",
@@ -970,6 +965,7 @@ def _render_feature_table(doc, data, col_widths):
         cell.text = header
         cell.paragraphs[0].runs[0].bold = True
         cell.paragraphs[0].runs[0].font.size = Pt(10)
+        cell.paragraphs[0].runs[0].font.name = 'Times New Roman'
         cell.paragraphs[0].runs[0].font.color.rgb = WHITE
         cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         _shade_cell(cell, "1F3864")
@@ -982,6 +978,7 @@ def _render_feature_table(doc, data, col_widths):
             cell = row.cells[col_idx]
             cell.text = value
             cell.paragraphs[0].runs[0].font.size = Pt(9.5)
+            cell.paragraphs[0].runs[0].font.name = 'Times New Roman'
             cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
             _shade_cell(cell, shade)
             cell.width = width
@@ -1048,7 +1045,13 @@ def export_word_report(df, df_vouchers, selected_vouchers, benford_stats, output
 
     style = doc.styles['Normal']
     style.font.size = Pt(12)
-    style.font.name = 'Calibri'
+    style.font.name = 'Times New Roman'
+
+    for st_name in ('Heading 1', 'Heading 2', 'List Bullet'):
+        try:
+            doc.styles[st_name].font.name = 'Times New Roman'
+        except KeyError:
+            pass
 
     print("    Page 1 — Executive Summary")
     _page1(doc, df, df_vouchers, selected_vouchers, benford_stats)

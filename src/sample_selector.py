@@ -94,7 +94,7 @@ def _build_reason(row):
         parts.append("Transaction on weekend (Saturday or Sunday)")
 
     if row.get('is_month_end', 0):
-        parts.append("Month-end transaction (last 3 days of month)")
+        parts.append("Month-end transaction (voucher accounting date in last 3 days of month)")
 
     if row.get('near_threshold', 0):
         parts.append("Amount just below approval threshold")

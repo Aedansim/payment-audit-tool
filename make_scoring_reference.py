@@ -819,7 +819,7 @@ def build_composite(ws):
     flag_rules = [
         ("is_round_number",             "Round number",             "amount mod 100 == 0",                         "0 or 1"),
         ("is_weekend_payment",          "Weekend payment",          "Invoice Date is Saturday or Sunday",          "0 or 1"),
-        ("is_month_end",                "Month-end",                "Invoice day ≥ days_in_month − 2",             "0 or 1"),
+        ("is_month_end",                "Month-end",                "Voucher Accounting day ≥ days_in_month − 2",  "0 or 1"),
         ("near_threshold",              "Near approval threshold",  "amount within 5% below 1K/5K/10K/50K/100K",  "0 or 1"),
         ("is_individual_payee",         "Individual payee",         "Vendor ID matches NRIC/FIN regex",            "0 or 1"),
         ("same_amount_vendor_irregular","Irregular repeat amount",  "Same amount to same vendor >2×, no regular cycle","0 or 1"),

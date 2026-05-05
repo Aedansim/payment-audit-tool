@@ -210,7 +210,7 @@ def engineer_features(df):
     df['is_duplicate'], df['duplicate_matched_invoice'] = _detect_duplicates(df)
     df['is_round_number'] = df[AMOUNT_COL].apply(_round_number)
     df['is_weekend_payment'] = df['Invoice Date'].apply(_is_weekend_payment)
-    df['is_month_end'] = df['Invoice Date'].apply(
+    df['is_month_end'] = df['Voucher Accounting Date'].apply(
         lambda d: 0 if pd.isna(d) else (1 if d.day >= (d.days_in_month - 2) else 0)
     )
     df['near_threshold'] = df[AMOUNT_COL].apply(_near_threshold)

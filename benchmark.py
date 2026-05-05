@@ -61,9 +61,9 @@ def _random_workday(start='2023-01-01', end='2024-12-31'):
     return _workday(d)
 
 
-def _build_row(i, vendor_idx, amount, invoice_date, anomaly_type=None):
+def _build_row(i, vendor_idx, amount, invoice_date, anomaly_type=None, voucher_date=None):
     inv_date = pd.Timestamp(invoice_date)
-    acc_date = inv_date + pd.Timedelta(days=int(RNG.integers(1, 15)))
+    acc_date = pd.Timestamp(voucher_date) if voucher_date is not None else inv_date + pd.Timedelta(days=int(RNG.integers(1, 15)))
     vendor_name = VENDORS[vendor_idx]
     vendor_id   = VENDOR_IDS[vendor_idx]
 
@@ -129,14 +129,15 @@ def generate_dataset():
         rows.append(_build_row(base + j, j + 3, amount, inv_date, 'high_amount'))
     base += N_ANOMALY
 
-    # --- Anomaly 5: month-end (last 3 days of month) ---
+    # --- Anomaly 5: month-end (last 3 days of month, voucher accounting date) ---
     for j in range(N_ANOMALY):
         month_start = pd.Timestamp('2023-01-01') + pd.DateOffset(months=j * 2)
         last_day    = (month_start + pd.DateOffset(months=1) - pd.Timedelta(days=1)).day
         day = last_day - int(RNG.integers(0, 3))
         inv_date = pd.Timestamp(month_start.year, month_start.month, day)
         amount   = _make_normal_amount()
-        rows.append(_build_row(base + j, j + 4, amount, inv_date, 'month_end'))
+        # Pass inv_date as voucher_date so Voucher Accounting Date is also month-end
+        rows.append(_build_row(base + j, j + 4, amount, inv_date, 'month_end', voucher_date=inv_date))
     base += N_ANOMALY
 
     # --- Anomaly 6: weekend date ---
