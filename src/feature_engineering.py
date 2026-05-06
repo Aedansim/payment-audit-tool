@@ -138,7 +138,7 @@ def _detect_split_purchase(df):
     if valid.empty:
         return result
 
-    valid['suf_int'] = valid['suffix'].astype(int)
+    valid['suf_int'] = valid['suffix'].astype(np.int64)
     gs = valid.groupby(['vid', 'idate'])['suf_int']
     cnt = gs.transform('count')
     mn  = gs.transform('min')
