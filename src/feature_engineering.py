@@ -118,6 +118,8 @@ def _detect_split_purchase(df):
     result = pd.Series(0, index=df.index)
 
     suffixes = df['Invoice Number'].astype(str).str.strip().str.extract(r'(\d+)$', expand=False)
+    # 19+ digit suffixes exceed int64 and are not plausible sequential counters — treat as absent
+    suffixes = suffixes.where(suffixes.str.len() <= 18)
 
     work = pd.DataFrame({
         'vid':        df['Vendor ID'],
