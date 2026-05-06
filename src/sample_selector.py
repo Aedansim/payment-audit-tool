@@ -364,7 +364,7 @@ def _similarity_filter(selected, df_vouchers, df_scored, threshold=0.70):
 
             drop_mask = selected['Voucher ID'] == drop_id
             if replacement is not None:
-                rep_row = replacement.to_frame().T.copy()
+                rep_row = pd.DataFrame([replacement.to_dict()])
                 rep_row['similarity_deduplicated'] = True
                 # carry over columns present in selected but not in df_vouchers
                 for col in ['Sample #', 'Sample_Rationale']:
@@ -379,10 +379,8 @@ def _similarity_filter(selected, df_vouchers, df_scored, threshold=0.70):
                       f"{replacement['Voucher ID']} (same vendor, similar description, "
                       f"similarity={sim_score:.2f})")
             else:
-                selected = selected[~drop_mask]
-                selected_ids.discard(drop_id)
-                print(f"  [Similarity filter] Dropped Voucher {drop_id} (same vendor, "
-                      f"similar description, similarity={sim_score:.2f}); no replacement available")
+                print(f"  [Similarity filter] Kept Voucher {drop_id} (no replacement "
+                      f"available; same vendor, similar description, similarity={sim_score:.2f})")
 
     # Rebuild Sample # after replacements — place it as the first column
     selected = selected.sort_values('voucher_score', ascending=False).reset_index(drop=True)
