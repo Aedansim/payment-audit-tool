@@ -34,11 +34,11 @@ def run_ensemble(df, ml_features, random_state=42):
     # --- Isolation Forest ---
     print("  Running Isolation Forest...")
     iso = IsolationForest(
-        n_estimators=300,
+        n_estimators=100,
         contamination=0.05,
         max_samples='auto',
         random_state=random_state,
-        n_jobs=-1,
+        n_jobs=1,
     )
     iso.fit(X_scaled)
     # score_samples returns negative values; more negative = more anomalous
@@ -53,7 +53,7 @@ def run_ensemble(df, ml_features, random_state=42):
         n_neighbors=n_neighbors,
         contamination=0.05,
         algorithm='ball_tree',
-        n_jobs=-1,
+        n_jobs=1,
     )
     lof_pred = lof.fit_predict(X_scaled)
     # negative_outlier_factor_ is negative; more negative = more anomalous
