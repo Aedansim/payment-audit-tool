@@ -116,16 +116,38 @@ def _detect_split_purchase(df):
     """Flag transactions where the same vendor has 2+ invoices on the same date
     with alphanumerically sequential numeric suffixes — possible split purchase."""
     result = pd.Series(0, index=df.index)
-    for (vid, idate), grp in df.groupby(['Vendor ID', 'Invoice Date'], sort=False):
-        if pd.isna(idate) or len(grp) < 2:
-            continue
-        inv_nums = grp['Invoice Number'].astype(str).str.strip()
-        suffixes = inv_nums.str.extract(r'(\d+)$', expand=False)
-        if suffixes.isna().any():
-            continue
-        nums = sorted(suffixes.astype(int).tolist())
-        if nums == list(range(nums[0], nums[-1] + 1)):
-            result.loc[grp.index] = 1
+
+    suffixes = df['Invoice Number'].astype(str).str.strip().str.extract(r'(\d+)$', expand=False)
+
+    work = pd.DataFrame({
+        'vid':        df['Vendor ID'],
+        'idate':      df['Invoice Date'],
+        'has_suffix': suffixes.notna().astype(int),
+        'suffix':     suffixes,
+    }, index=df.index).dropna(subset=['idate'])
+
+    if work.empty:
+        return result
+
+    g = work.groupby(['vid', 'idate'])['has_suffix']
+    work['grp_total']    = g.transform('count')
+    work['grp_with_suf'] = g.transform('sum')
+
+    # Keep only groups where every row has a suffix and group size >= 2
+    valid = work[(work['grp_total'] >= 2) & (work['grp_total'] == work['grp_with_suf'])].copy()
+    if valid.empty:
+        return result
+
+    valid['suf_int'] = valid['suffix'].astype(int)
+    gs = valid.groupby(['vid', 'idate'])['suf_int']
+    cnt = gs.transform('count')
+    mn  = gs.transform('min')
+    mx  = gs.transform('max')
+    nu  = gs.transform('nunique')
+
+    # Consecutive integer range: max − min == count − 1 with no duplicates
+    is_split = (mx - mn == cnt - 1) & (cnt == nu)
+    result.loc[valid[is_split].index] = 1
     return result
 
 
