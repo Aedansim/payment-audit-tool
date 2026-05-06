@@ -167,15 +167,21 @@ The `ML_Consensus_Flag` was updated in April 2026 to use `sklearn.predict()` bin
 
 **Split purchase risk detection (May 2026):** `feature_engineering._detect_split_purchase()` flags groups where the same vendor has two or more transactions on the same `Invoice Date` with alphanumerically sequential invoice number numeric suffixes (e.g. INV-1001, INV-1002). Detection: strip trailing numeric suffix via regex `(\d+)$`; if any invoice in the group has no numeric suffix the group is skipped; check that sorted suffixes form a consecutive integer range. Flag stored as `is_split_purchase_risk` (binary). Added to both `FLAG_COLS` (10 flags total) and `ml_features` (17 candidates). Reason code: `"Split purchase risk — same vendor, same invoice date, sequential invoice numbers"`.
 
+Implementation is fully vectorised (no Python for-loop over groups): suffixes are extracted once on the full column, per-group count/min/max/nunique are computed via `transform()`, and the consecutive-range condition is applied as a single boolean mask. Two additional guards are applied before integer conversion: (1) suffixes are cast to `np.int64` (not `int`/`np.int_`, which is 32-bit on Windows); (2) suffixes with more than 18 digits are treated as absent via `Series.where(suffixes.str.len() <= 18)` — 19+ digit values exceed int64 max and are not plausible sequential counters (they are typically composite keys or timestamp-derived IDs). Rows with oversized suffixes are excluded from detection via the existing all-rows-must-have-suffix group guard.
+
 **Transposed amount detection (May 2026):** `feature_engineering._detect_transposed_amounts()` flags transactions where the same vendor + lowercased `Voucher Line Description` group contains two positive amounts that differ by exactly one digit-position swap — e.g. SGD 4,800 vs SGD 8,400. Detection uses `_is_digit_transposition(a, b)`: convert each amount to its cent-integer string (`str(int(round(amount * 100)))`); if the strings are equal length and differ in exactly 2 positions whose values are swapped, it is a transposition. This operates on the full amount including cents (e.g. 123.45 vs 123.54 is caught; 967.24 vs 975.52 is not, since their cent strings differ in 4 positions). All rows in qualifying pairs are flagged as `is_transposed_amount = 1`. Added to both `FLAG_COLS` and `ml_features`. The function returns a tuple `(is_transposed Series, transposed_matched_invoice Series)`; for each flagged row, `transposed_matched_invoice` holds the `Invoice Number` of the counterpart row (first counterpart found, if a row has multiple). `engineer_features()` unpacks the tuple: `df['is_transposed_amount'], df['transposed_matched_invoice'] = _detect_transposed_amounts(df)`. Reason code: `"Possible transposed amount — same vendor and description, digit-transposed amount exists (matched against invoice: {value}) (review for keying error)"`.
 
 **Duplicate matched invoice column (May 2026):** `feature_engineering._detect_duplicates()` now returns a tuple `(is_duplicate Series, duplicate_matched_invoice Series)` instead of a single Series. For each flagged row, `duplicate_matched_invoice` holds the invoice number of the counterpart row (they share the same invoice number since that is the duplicate key). The reason code in `_build_reason()` was updated to include the matched invoice explicitly: `"Potential duplicate payment — same vendor, invoice, and amount found in other voucher(s) (matched against invoice: {value})"`. `engineer_features()` unpacks the tuple: `df['is_duplicate'], df['duplicate_matched_invoice'] = _detect_duplicates(df)`.
 
-**Similarity deduplication post-selection (May 2026):** `sample_selector._similarity_filter()` runs after `_stratified_sample()` and before the final sample is returned. For each vendor with two or more selected vouchers, it compares `Voucher Line Description` values pairwise using Jaccard token-overlap similarity (intersection / union of lowercase word tokens). If any pair exceeds threshold 0.70, the lower-scoring voucher is dropped and replaced by the next-highest-scoring unselected voucher from `df_vouchers` in the same tier (then next tier down) that does not have a similar description to any retained voucher for that vendor. A `similarity_deduplicated` column (True/False) is added to `selected_vouchers` to flag replacement rows. A print statement logs each replacement. Helper functions: `_jaccard_similarity(a, b)`, `_get_voucher_desc(voucher_id, df_scored)`. Note: in the synthetic benchmark all descriptions share the same template, so the filter fires aggressively; in production data with varied descriptions it fires only for genuine near-duplicates.
+**Similarity deduplication post-selection (May 2026):** `sample_selector._similarity_filter()` runs after `_stratified_sample()` and before the final sample is returned. For each vendor with two or more selected vouchers, it compares `Voucher Line Description` values pairwise using Jaccard token-overlap similarity (intersection / union of lowercase word tokens). If any pair exceeds threshold 0.70, the lower-scoring voucher is swapped for the next-highest-scoring unselected voucher from `df_vouchers` in the same tier (then next tier down) that does not have a similar description to any retained voucher for that vendor. If no replacement is available, the original voucher is kept — the filter never reduces the total below `n_samples`. A `similarity_deduplicated` column (True/False) is added to `selected_vouchers` to flag replacement rows. A print statement logs each swap or keep-without-replacement. Helper functions: `_jaccard_similarity(a, b)`, `_get_voucher_desc(voucher_id, df_scored)`. Note: in the synthetic benchmark all descriptions share the same template, so the filter fires aggressively; in production data with varied descriptions it fires only for genuine near-duplicates.
+
+**`_similarity_filter()` dtype preservation (May 2026):** When building a replacement row, use `pd.DataFrame([replacement.to_dict()])` — NOT `replacement.to_frame().T`. Transposing a mixed-type Series via `.to_frame().T` converts all columns to object dtype; after `pd.concat` into `selected`, numeric columns such as `voucher_score` silently become object dtype and raise `TypeError` on `.round()` in Step 4. Constructing from a dict lets pandas infer the correct dtype (float64 for scores) per column independently.
 
 **T08 vendor de-prioritisation (May 2026):** Before `_stratified_sample()`, `select_samples()` marks vouchers where `Vendor ID` starts with `T08` (case-insensitive) as `is_t08_vendor = True` in `df_vouchers`. A temporary copy `df_for_sampling` overrides their `voucher_risk_tier` to `LOW` so they cannot be selected as HIGH or MEDIUM. After sampling, the real `voucher_risk_tier` is restored in `selected_vouchers` via a dict lookup, so all outputs show true scores and tiers. `df_vouchers` always retains real tiers and is never modified. The `Sample_Rationale` is set from the sampling tier (before restoration), accurately describing why the voucher was selected. An amber-background note is added to the Excel **Summary** sheet explaining the de-prioritisation. The Word report **Methodology** page includes a paragraph after the "Risk Tier Assignment and Sample Selection" section stating the T08 count and policy.
 
 **Voucher Line Description(s) in rollup and Excel (May 2026):** `sample_selector._rollup_vouchers()` now collects unique non-blank `Voucher Line Description` values per voucher and stores them as `Voucher Line Description(s)` (pipe-separated) in `df_vouchers`. This field is surfaced in the **Selected Vouchers** Excel tab between `Invoice Number(s)` and `Total Amount (SGD)`, with a fixed column width of 50 characters. Collection uses a list comprehension with `pd.notna()` guard — do NOT use the `.astype(str).str.strip().pipe(...isin...)` pattern here because `Series.unique()` can return float NaN values that bypass `.isin(['nan'])` and break `str.join()`.
+
+**ML model parallelism disabled for shared servers (May 2026):** `ml_models.run_ensemble()` sets `n_jobs=1` on both `IsolationForest` and `LocalOutlierFactor`. On JupyterHub and other shared notebook servers, `n_jobs=-1` causes joblib to fork one worker process per CPU core, each holding its own copy of the scaled feature matrix — this can exceed per-user memory limits and kill the kernel mid-run. `n_jobs=1` runs both models in-process with no parallelism overhead; scoring quality is unaffected. `IsolationForest` uses `n_estimators=100` (sklearn default), reduced from 300; higher values offered no measurable quality improvement on this problem and tripled memory usage.
 
 **`_rule_flags_score` uses a dynamic denominator (May 2026):** `sample_selector._rule_flags_score()` divides by `len(present)` — the count of `FLAG_COLS` columns actually present in `df.columns` — not a hardcoded number. With 10 flags always computed in `engineer_features()`, the effective denominator is 10. `flag_density` in `_rollup_vouchers()` uses the same pattern (`n_flags = len(flag_present)`). Both `report_generator.py` and `make_scoring_reference.py` were updated to reflect "10 rules / ÷10" after the two new flags were added; keep these in sync whenever `FLAG_COLS` changes. The worked example in the Word report Methodology page (Stage 3) reads `"2 rules triggered = 2/10 = 0.20"` — do not revert this to `2/8` (the pre-May 2026 value when only 8 flags existed).
 
@@ -201,7 +207,24 @@ This is intentional: voucher-level aggregation before scoring would lose line-le
 
 Run with `python benchmark.py`. Tests against 530 synthetic transactions (500 normal + 30 injected anomalies, 5 per type), each as its own single-line voucher. Scores are at voucher level.
 
-### Current results (voucher-level selection, May 2026)
+### Current results (voucher-level selection, May 2026 — bug fixes applied)
+
+| Anomaly Type | In Top 25 | Avg Score | Score Percentile |
+|---|---|---|---|
+| individual_payee | 5/5 | 0.546 | 99th |
+| high_amount | 5/5 | 0.381 | 96th |
+| month_end | 2/5 | 0.355 | 93rd |
+| round_number | 2/5 | 0.349 | 94th |
+| near_threshold | 2/5 | 0.333 | 92nd |
+| weekend_date | 3/5 | 0.322 | 93rd |
+
+**Overall: Recall 63.3% (19/30), Precision 76.0% (19/25), Cohen's d = 2.89 (strong separation)**
+
+Note: the similarity deduplication filter fires aggressively on the synthetic benchmark because all descriptions share the same template ("Payment for services rendered - ref N"), giving pairwise Jaccard similarity ≈ 0.75 > 0.70. However, when no replacement is available the original voucher is now kept, so the sample is always exactly 25. In production data with varied descriptions the filter fires only for genuine near-duplicates.
+
+### Previous results (voucher-level selection, May 2026 — pre-fix)
+
+The results below were produced with a bug in `_similarity_filter()`: when no replacement voucher was available, the dropped voucher was not restored, shrinking the effective sample below 25. Precision figures below are against the reduced sample size and are not comparable to results above.
 
 | Anomaly Type | In Top 25 | Avg Score | Score Percentile |
 |---|---|---|---|
@@ -212,9 +235,7 @@ Run with `python benchmark.py`. Tests against 530 synthetic transactions (500 no
 | weekend_date | 0/5 | 0.328 | 94th |
 | month_end | 0/5 | 0.283 | 89th |
 
-**Overall: Recall 33.3% (10/30), Precision 52.6% (10/19), Cohen's d = 2.79 (strong separation)**
-
-Note: the sample shrank from 25 to 19 in the benchmark run because the similarity deduplication filter (Amendment 5, May 2026) correctly fires on the synthetic dataset — all benchmark descriptions follow the same template ("Payment for services rendered - ref N"), giving pairwise Jaccard similarity ≈ 0.75 > 0.70 threshold for any two vouchers from the same vendor. In production data with varied descriptions, the filter fires far less aggressively. Cohen's d = 2.79 remains strong separation and the slight drop from 2.83 is within normal benchmark variance.
+**Overall: Recall 33.3% (10/30), Precision 52.6% (10/19), Cohen's d = 2.79**
 
 ### Previous results (voucher-level selection, April 2026)
 
@@ -246,6 +267,6 @@ Note: the sample shrank from 25 to 19 in the benchmark run because the similarit
 
 The benchmark recall figures are synthetic test artefacts. The benchmark uses single-line vouchers, so line-level and voucher-level selection are equivalent, and gaps across runs reflect different random characteristics of the test datasets rather than real regressions.
 
-The meaningful measure is Cohen's d: **2.79** (May 2026) remains strong separation. In real data with multi-line vouchers, recall is expected to be higher than the benchmark suggests because any flagged line elevates the whole voucher.
+The meaningful measure is Cohen's d: **2.89** (May 2026) remains strong separation. In real data with multi-line vouchers, recall is expected to be higher than the benchmark suggests because any flagged line elevates the whole voucher.
 
 Single-signal anomalies (month-end, weekend date) consistently score in the 86th–94th percentile but are displaced from the top selection by stronger multi-signal anomalies. The tool performs best when multiple flags stack on the same transaction.
