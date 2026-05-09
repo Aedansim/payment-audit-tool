@@ -415,6 +415,7 @@ def _vendor_cap(selected, df_vouchers, df_scored, threshold=0.70):
     selected_ids = set(selected['Voucher ID'].tolist())
 
     desc_cache = {}
+    voucher_to_vendor = df_vouchers.set_index('Voucher ID')['Vendor ID'].to_dict()
 
     def _get_desc(vid):
         if vid not in desc_cache:
@@ -457,9 +458,18 @@ def _vendor_cap(selected, df_vouchers, df_scored, threshold=0.70):
                 ~df_vouchers['Voucher ID'].isin(selected_ids)
             ].sort_values('voucher_score', ascending=False)
 
+            vendor_retained_counts: dict = {}
+            for vid in current_retained_ids:
+                v = voucher_to_vendor.get(vid)
+                if v:
+                    vendor_retained_counts[v] = vendor_retained_counts.get(v, 0) + 1
+
             replacement = None
             for _, cand in candidates.iterrows():
                 cand_vid = cand['Voucher ID']
+                cand_vendor = cand['Vendor ID']
+                if vendor_retained_counts.get(cand_vendor, 0) >= 2:
+                    continue
                 cand_desc = _get_desc(cand_vid)
                 if all(
                     _jaccard_similarity(cand_desc, _get_desc(rv)) <= threshold
