@@ -326,7 +326,7 @@ def _page1(doc, df, df_vouchers, selected_vouchers, benford_stats):
     _body(doc,
           "The payment vouchers in this report were selected using a composite risk score that "
           "combines the outputs of five independent analytical methods — machine learning anomaly "
-          "detection, statistical z-score analysis, rule-based forensic checks, and Benford's Law "
+          "detection (two methods), statistical z-score analysis, rule-based forensic checks, and Benford's Law "
           "deviation analysis — into a single ranked score per voucher. Vouchers are stratified "
           "into HIGH, MEDIUM, and LOW risk tiers based on their score percentile, and the audit "
           "sample prioritises higher-risk tiers. Diversity controls are applied to prevent any "
