@@ -331,7 +331,7 @@ def _page1(doc, df, df_vouchers, selected_vouchers, benford_stats):
           "the same vendor are deduplicated in favour of the higher-scoring voucher, and a limit "
           "of 2 samples per vendor is enforced. Vendors with IDs beginning with 'T08' (typically "
           "government agencies) are de-prioritised and will not appear in the sample unless "
-          "insufficient non-government vouchers are available. The selected samples are intended "
+          "insufficient non-T08 vouchers are available. The selected samples are intended "
           "as risk-based suggestions to guide audit focus. Auditors should exercise professional "
           "judgement in determining which payments to proceed with for further testing.",
           size=10)
@@ -465,7 +465,7 @@ def _page2(doc, t08_count=0):
           "that the machine learning models and rule-based checks can evaluate. Without this step, "
           "the models would have no meaningful way to distinguish between a normal payment and an "
           "anomalous one — raw fields such as vendor name, invoice date, and payment amount carry "
-          "limited signal on their own. By computing derived features such as how much a payment "
+          "limited signals on their own. By computing derived features such as how much a payment "
           "deviates from a vendor's historical average, whether the amount falls suspiciously close "
           "to an approval threshold, or whether the invoice numbering follows a sequential pattern "
           "on the same date, the tool surfaces patterns that would otherwise require manual "
@@ -474,13 +474,8 @@ def _page2(doc, t08_count=0):
     _body(doc,
           "A complete list of features computed in this stage, including their definitions, data "
           "types, and usage across the scoring components, is provided in the Features Reference "
-          "table in later section of this report.",
+          "Table in the later section of this report.",
           size=10)
-    _body(doc,
-          "Caveat: Recurring payments (monthly, quarterly, semi-annual, annual cycles) are detected "
-          "and tagged separately. They are excluded from Benford's Law analysis because their fixed "
-          "amounts naturally deviate from Benford's expected distribution without being suspicious.",
-          italic=True, size=10)
     doc.add_paragraph()
 
     # ---- Stage 2 ----
@@ -505,7 +500,9 @@ def _page2(doc, t08_count=0):
           "transactions). Smaller datasets or narrow amount ranges produce less stable results. "
           "The chi-square test is very sensitive for large datasets and may flag minor deviations "
           "as statistically significant even when they are not practically meaningful — MAD is the "
-          "primary practical measure.",
+          "primary practical measure. Recurring payments (monthly, quarterly, semi-annual, annual cycles) are detected "
+          "and tagged separately. They are excluded from Benford's Law analysis because their fixed "
+          "amounts naturally deviate from Benford's expected distribution without being suspicious. ",
           italic=True, size=10)
     doc.add_paragraph()
 

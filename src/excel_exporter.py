@@ -418,12 +418,7 @@ def _sheet_benford(wb, benford_summary, stats):
     _key_msg = (
         "Key Takeaway: Read MAD and Chi-Square together. MAD quantifies the size of the deviation; "
         "Chi-Square (p-value) tests whether it is statistically significant for the sample size. "
-        "A significant p-value with small MAD (< 0.012) indicates anomalies may be concentrated "
-        "in specific transactions or digit groups rather than dataset-wide — individual transaction "
-        "Benford flags remain relevant and should be reviewed alongside other risk signals. "
-        "The strongest audit signal is a Non-Conformity MAD (> 0.015) combined with a low p-value — "
-        "this warrants investigation of the most deviant digits (highlighted in orange in the "
-        "frequency table below). Transactions whose first digit falls among the most deviant are "
+        "Transactions whose first digit falls among the most deviant are "
         "identified by the 'Most Deviant Digits' field above."
     )
     _kc = ws.cell(row=_key_row, column=1, value=_key_msg)
@@ -437,7 +432,7 @@ def _sheet_benford(wb, benford_summary, stats):
     _LIGHT_BLUE = PatternFill("solid", fgColor="BDD7EE")
     _interp_items = [
         (
-            "High MAD + Statistically Significant p-value",
+            "High MAD (> 0.015) + Statistically Significant p-value (< 0.05)",
             "The distortion is large enough in magnitude to be visible at the aggregate level. "
             "This means the anomaly is either widespread across many transactions, or the "
             "concentrated transactions are so extreme in their deviation that they are dragging "
@@ -445,12 +440,11 @@ def _sheet_benford(wb, benford_summary, stats):
             "broader review of the dataset — not just a focus on a few deviant digit groups.",
         ),
         (
-            "Low MAD + Statistically Significant p-value",
+            "Low MAD (<0.012)+ Statistically Significant p-value (< 0.05)",
             "The overall distribution still looks broadly healthy. The anomaly is real but "
             "subtle — this suggests fewer transactions are involved, or the manipulation (if any) "
             "is more careful and targeted. The audit response should be more surgical: look for "
-            "smaller, possibly more deliberate patterns within the flagged digit groups rather "
-            "than conducting a broad dataset review.",
+            "smaller, possibly more deliberate patterns within the flagged digit groups.",
         ),
     ]
     for _i, (_lbl, _txt) in enumerate(_interp_items):
@@ -562,7 +556,7 @@ def _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats)
     # T08 de-prioritisation note
     note_row = 3 + len(rows) + 1
     note_text = (
-        "Note: Vendors with IDs beginning with 'T08' (government agencies) have been "
+        "Note: Vendors with IDs beginning with 'T08' (typically government agencies) have been "
         "de-prioritised and will not be selected as samples unless no other vouchers are "
         "available in the lower risk tier. They remain visible in the All Vouchers Scored "
         "sheet for reference."
@@ -595,7 +589,7 @@ def _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats)
             "degree of similarity in payment description within the same vendor are deduplicated "
             "in favour of the higher-scoring voucher, and a limit of 2 samples per vendor is "
             "enforced. Vendors with IDs beginning with 'T08' (typically government agencies) are "
-            "de-prioritised and will not appear in the sample unless insufficient non-government "
+            "de-prioritised and will not appear in the sample unless insufficient non-T08 "
             "vouchers are available. The selected samples are intended as risk-based suggestions "
             "to guide audit focus. Auditors should exercise professional judgement in determining "
             "which payments to proceed with for further testing.",
