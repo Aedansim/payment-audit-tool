@@ -453,11 +453,12 @@ def _page2(doc, t08_count=0):
     _heading(doc, "Methodology — How the Tool Works", level=1)
 
     _body(doc,
-          "This tool identifies payment transactions that are statistically unusual and therefore "
-          "warrant audit examination. It applies five independent analytical methods simultaneously, "
-          "combines their outputs into a composite risk score per transaction line item, rolls up "
-          "results to payment voucher level, assigns risk tiers, and selects a stratified sample. "
-          "The full process is documented below to support independent verification or recalibration.",
+          "This section provides a full technical account of the analytical process applied to "
+          "the payment data — from initial feature extraction through to final audit sample "
+          "selection — at a level of detail sufficient for independent verification, methodology "
+          "recalibration, or peer review. Readers who require only a high-level understanding of "
+          "the selection approach are referred to the Executive Summary. Each stage is described "
+          "in full below.",
           size=10)
     doc.add_paragraph()
 
