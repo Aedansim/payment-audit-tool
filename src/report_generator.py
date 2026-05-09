@@ -324,14 +324,14 @@ def _page1(doc, df, df_vouchers, selected_vouchers, benford_stats):
     _heading(doc, "Executive Summary", level=1)
 
     _body(doc,
-          "In selecting samples, the primary basis is the composite risk score — a weighted "
-          "combination of machine learning anomaly scores, statistical z-scores, rule-based flags, "
-          "and Benford's Law deviation. Additional considerations are applied to ensure sample "
-          "diversity: transactions with a high degree of similarity in payment description within "
-          "the same vendor are deduplicated in favour of the higher-scoring voucher, and a limit "
-          "of 2 samples per vendor is enforced. Vendors with IDs beginning with 'T08' (typically "
-          "government agencies) are de-prioritised and will not appear in the sample unless "
-          "insufficient non-T08 vouchers are available. The selected samples are intended "
+          "The payment vouchers in this report were selected using a composite risk score that "
+          "combines the outputs of five independent analytical methods — machine learning anomaly "
+          "detection, statistical z-score analysis, rule-based forensic checks, and Benford's Law "
+          "deviation analysis — into a single ranked score per voucher. Vouchers are stratified "
+          "into HIGH, MEDIUM, and LOW risk tiers based on their score percentile, and the audit "
+          "sample prioritises higher-risk tiers. Diversity controls are applied to prevent any "
+          "single vendor or payment pattern from dominating the sample; the specific criteria are "
+          "described in the Methodology section of this report. The selected samples are intended "
           "as risk-based suggestions to guide audit focus. Auditors should exercise professional "
           "judgement in determining which payments to proceed with for further testing.",
           size=10)
@@ -434,11 +434,14 @@ def _page1(doc, df, df_vouchers, selected_vouchers, benford_stats):
 
     doc.add_paragraph()
     _body(doc,
-          f"The {len(selected_vouchers)} payment vouchers selected represent those with the highest "
-          "composite risk scores across all analytical methods. Scoring is performed at line-item "
-          "level and then rolled up to payment voucher level, so auditors can pull complete vouchers "
-          "for review. Each selected voucher has documented reason codes "
-          "(see the 'Selected Vouchers' tab in the accompanying Excel workbook).",
+          f"Each of the {len(selected_vouchers)} selected payment vouchers is accompanied by "
+          "documented reason codes that explain which analytical signals drove its inclusion, "
+          "helping auditors prioritise their review approach and focus testing on the most "
+          "material risk indicators. Scoring is performed at individual line-item level and "
+          "rolled up to payment voucher level, so each entry in the sample corresponds to a "
+          "complete voucher that can be physically retrieved for examination. Full details — "
+          "including line-level scores, flags, and reason codes — are available in the "
+          "'Selected Vouchers' and 'Voucher Line Detail' tabs in the accompanying Excel workbook.",
           size=10)
 
 
@@ -735,9 +738,31 @@ def _page2(doc, t08_count=0):
           size=10)
     doc.add_paragraph()
     _body(doc,
-          "The final sample is drawn from all three risk tiers. All HIGH vouchers are selected first. "
-          "The remaining slots are filled proportionally from MEDIUM and LOW tiers, "
-          "ensuring the highest-risk vouchers are always covered.",
+          "The audit sample is drawn from all three tiers using a stratified approach. All "
+          "HIGH-tier vouchers are included as mandatory selections. Remaining slots are filled "
+          "proportionally from MEDIUM and LOW tiers, ensuring coverage of elevated-risk items "
+          "while also providing a baseline of lower-risk vouchers against which audit findings "
+          "can be contextualised.",
+          size=10)
+    doc.add_paragraph()
+    _body(doc,
+          "Within each vendor, near-duplicate vouchers are identified and consolidated before "
+          "the sample is finalised. For any vendor with two or more selected vouchers, pairwise "
+          "Jaccard token-overlap similarity is computed on the voucher line descriptions. If two "
+          "vouchers share more than 70% of their description tokens, the lower-scoring voucher is "
+          "replaced by the next-highest-scoring unselected voucher — drawn from any vendor — whose "
+          "description does not introduce a new near-duplicate. This prevents the sample from being "
+          "dominated by cosmetically similar payments when other analytically distinct, "
+          "higher-scoring vouchers are available.",
+          size=10)
+    doc.add_paragraph()
+    _body(doc,
+          "A vendor cap of two vouchers per Vendor ID is then applied. If more than two vouchers "
+          "from the same vendor remain selected after the similarity step, only the two "
+          "highest-scoring are retained; excess vouchers are replaced by the next-best unselected "
+          "alternatives that satisfy both the vendor cap and the similarity check. This ensures "
+          "the sample spans a broad range of vendors and reduces the risk that audit attention "
+          "is concentrated on a single supplier relationship.",
           size=10)
     doc.add_paragraph()
     _body(doc,
