@@ -24,7 +24,6 @@ ANOMALY_TYPES = [
     'near_threshold',
     'round_number',
     'high_amount',
-    'month_end',
     'weekend_date',
 ]
 
@@ -129,24 +128,15 @@ def generate_dataset():
         rows.append(_build_row(base + j, j + 3, amount, inv_date, 'high_amount'))
     base += N_ANOMALY
 
-    # --- Anomaly 5: month-end (last 3 days of month, voucher accounting date) ---
-    for j in range(N_ANOMALY):
-        month_start = pd.Timestamp('2023-01-01') + pd.DateOffset(months=j * 2)
-        last_day    = (month_start + pd.DateOffset(months=1) - pd.Timedelta(days=1)).day
-        day = last_day - int(RNG.integers(0, 3))
-        inv_date = pd.Timestamp(month_start.year, month_start.month, day)
-        amount   = _make_normal_amount()
-        # Pass inv_date as voucher_date so Voucher Accounting Date is also month-end
-        rows.append(_build_row(base + j, j + 4, amount, inv_date, 'month_end', voucher_date=inv_date))
-    base += N_ANOMALY
-
-    # --- Anomaly 6: weekend date ---
+    # --- Anomaly 5: weekend date (Voucher Accounting Date on Saturday) ---
     for j in range(N_ANOMALY):
         # Find a Saturday in 2023-2024
         d = pd.Timestamp('2023-01-07') + pd.Timedelta(weeks=j * 12)  # guaranteed Saturday
         assert d.weekday() == 5, f"Expected Saturday, got weekday {d.weekday()}"
+        inv_date = _random_workday()   # Invoice Date is a normal workday
         amount = _make_normal_amount()
-        rows.append(_build_row(base + j, j + 5, amount, d, 'weekend_date'))
+        # Pass d as voucher_date so Voucher Accounting Date falls on Saturday (the flagged field)
+        rows.append(_build_row(base + j, j + 4, amount, inv_date, 'weekend_date', voucher_date=d))
 
     df = pd.DataFrame(rows).reset_index(drop=True)
     df['Invoice Date']            = pd.to_datetime(df['Invoice Date'])
