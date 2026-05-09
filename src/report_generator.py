@@ -284,11 +284,58 @@ def _chart_top_vendors(df):
 
 
 # ---------------------------------------------------------------------------
+# Scope and Limitations — rendered first, before Executive Summary
+# ---------------------------------------------------------------------------
+
+def _page_caveats(doc):
+    _heading(doc, "Scope and Limitations", level=1)
+    _body(doc,
+          "The following limitations should be understood before acting on the tool's output:",
+          size=10)
+    caveats = [
+        "Not a fraud detection tool — a high voucher score indicates a statistically unusual "
+        "transaction that warrants attention; it is not evidence of fraud or error. Professional "
+        "judgement is required for all selected vouchers. Transactions not flagged should not be "
+        "assumed free from irregularities, as sophisticated anomalies that closely mimic normal "
+        "payment patterns may go undetected.",
+        "Line-item scope — the tool scores individual transaction lines, not total voucher amounts. "
+        "A large voucher split across many small lines of normal individual amounts may not score "
+        "highly even if the total is anomalous. Auditors should review total voucher values "
+        "alongside individual line scores.",
+        "Pre-calibrated weights — component weights and rule thresholds are calibrated for typical "
+        "corporate payment datasets. Unusual compositions (e.g. predominantly recurring payments, "
+        "narrow amount bands) may require recalibration. Weights can be overridden via "
+        "'sample_selector.WEIGHTS' before calling select_samples().",
+        "Declared component weights are approximate — the five weights describe intended relative "
+        "importance, not precisely isolated statistical contributions. Features shared across "
+        "components (amount z-scores and rule flags feed both their dedicated scoring components "
+        "and Isolation Forest/LOF) carry marginally more effective influence than their labelled "
+        "weight suggests. This does not affect the relative voucher rankings in practice.",
+    ]
+    for caveat in caveats:
+        _bullet(doc, caveat, size=10)
+
+
+# ---------------------------------------------------------------------------
 # Page 1 — Executive Summary
 # ---------------------------------------------------------------------------
 
 def _page1(doc, df, df_vouchers, selected_vouchers, benford_stats):
     _heading(doc, "Executive Summary", level=1)
+
+    _body(doc,
+          "In selecting samples, the primary basis is the composite risk score — a weighted "
+          "combination of machine learning anomaly scores, statistical z-scores, rule-based flags, "
+          "and Benford's Law deviation. Additional considerations are applied to ensure sample "
+          "diversity: transactions with a high degree of similarity in payment description within "
+          "the same vendor are deduplicated in favour of the higher-scoring voucher, and a limit "
+          "of 2 samples per vendor is enforced. Vendors with IDs beginning with 'T08' (typically "
+          "government agencies) are de-prioritised and will not appear in the sample unless "
+          "insufficient non-government vouchers are available. The selected samples are intended "
+          "as risk-based suggestions to guide audit focus. Auditors should exercise professional "
+          "judgement in determining which payments to proceed with for further testing.",
+          size=10)
+    doc.add_paragraph()
 
     # ---- Dataset overview ----
     _heading(doc, "Dataset Overview", level=2)
@@ -297,8 +344,8 @@ def _page1(doc, df, df_vouchers, selected_vouchers, benford_stats):
     n_vouchers   = len(df_vouchers)
     avg_lines    = total_lines / n_vouchers if n_vouchers > 0 else 0
     total_amt    = df[AMOUNT_COL].sum()
-    date_min     = df['Invoice Date'].min()
-    date_max     = df['Invoice Date'].max()
+    date_min     = df['Voucher Accounting Date'].min()
+    date_max     = df['Voucher Accounting Date'].max()
     n_vendors    = df['Vendor ID'].nunique()
     n_indiv      = int(df.get('is_individual_payee', pd.Series(0)).sum())
     n_company    = total_lines - n_indiv
@@ -310,7 +357,7 @@ def _page1(doc, df, df_vouchers, selected_vouchers, benford_stats):
     )
 
     stats = [
-        ("Analysis period",                    period),
+        ("Payment Voucher Period",              period),
         ("Total transaction line items",       f"{total_lines:,}"),
         ("Unique payment vouchers",            f"{n_vouchers:,}"),
         ("Average lines per voucher",          f"{avg_lines:.1f}"),
@@ -348,6 +395,13 @@ def _page1(doc, df, df_vouchers, selected_vouchers, benford_stats):
     n_z_high   = int(df.get('zscore_anomaly', pd.Series(0)).sum())
     n_rule     = int((df.get('rule_flags_score', pd.Series(0)) > 0).sum())
 
+    dup_mask   = df_vouchers['voucher_reason_codes'].str.contains('Potential duplicate payment', na=False)
+    split_mask = df_vouchers['voucher_reason_codes'].str.contains('Split purchase risk', na=False)
+    n_dup_vch  = int(dup_mask.sum())
+    amt_dup    = float(df_vouchers.loc[dup_mask, 'voucher_total_amount'].sum()) if 'voucher_total_amount' in df_vouchers.columns else 0.0
+    n_split_vch = int(split_mask.sum())
+    amt_split   = float(df_vouchers.loc[split_mask, 'voucher_total_amount'].sum()) if 'voucher_total_amount' in df_vouchers.columns else 0.0
+
     n_sel_lines = int(selected_vouchers['voucher_line_count'].sum()) \
         if 'voucher_line_count' in selected_vouchers.columns else len(selected_vouchers)
     score_min = selected_vouchers['voucher_score'].min() \
@@ -361,6 +415,8 @@ def _page1(doc, df, df_vouchers, selected_vouchers, benford_stats):
         ("Local outlier anomalies (top 5% boundary)",    f"{n_lof_high:,} transaction lines"),
         ("Statistical z-score outliers",              f"{n_z_high:,} transaction lines"),
         ("Rule-based flags triggered",                f"{n_rule:,} transaction lines"),
+        ("Potential duplicate payments",              f"{n_dup_vch:,} payment voucher(s) (SGD {amt_dup:,.2f})"),
+        ("Split purchase risk",                       f"{n_split_vch:,} payment voucher(s) (SGD {amt_split:,.2f})"),
         ("Final vouchers selected for audit",         f"{len(selected_vouchers)} payment vouchers ({n_sel_lines:,} line items)"),
         ("Voucher risk score range (selected)",        f"{score_min:.3f} – {score_max:.3f}"),
     ]
@@ -405,21 +461,20 @@ def _page2(doc, t08_count=0):
     # ---- Stage 1 ----
     _heading(doc, "Stage 1 — Feature Engineering", level=2)
     _body(doc,
-          "Before scoring, each transaction line is enriched with computed behavioural features: "
-          "the payment amount normalised against the vendor's average amount (z-score) and "
-          "against the cost centre average; the vendor's billing consistency (coefficient of "
-          "variation across positive amounts — a higher value indicates a vendor whose amounts "
-          "legitimately vary, which would otherwise widen the z-score tolerance and mask "
-          "overpayments); processing days (Invoice Date to Voucher Accounting Date); whether "
-          "the invoice date falls on a weekend; whether the amount is round; whether it falls "
-          "just below a common approval threshold; whether the payee is an individual (Singapore "
-          "NRIC/FIN format); whether the same invoice appears across multiple payment vouchers "
-          "(potential duplicate payment); whether the payment is a negative-amount reversal or "
-          "credit note; whether the same amount recurs to the same vendor without a regular "
-          "schedule; whether the vendor issued two or more sequentially numbered invoices on the "
-          "same date (split purchase risk); and whether the payment amount differs from another "
-          "transaction to the same vendor with the same description by exactly one pair of "
-          "transposed digits in the full amount including cents (transposed amount — keying error risk).",
+          "Feature engineering transforms raw payment transaction data into structured signals "
+          "that the machine learning models and rule-based checks can evaluate. Without this step, "
+          "the models would have no meaningful way to distinguish between a normal payment and an "
+          "anomalous one — raw fields such as vendor name, invoice date, and payment amount carry "
+          "limited signal on their own. By computing derived features such as how much a payment "
+          "deviates from a vendor's historical average, whether the amount falls suspiciously close "
+          "to an approval threshold, or whether the invoice numbering follows a sequential pattern "
+          "on the same date, the tool surfaces patterns that would otherwise require manual "
+          "inspection of thousands of individual transactions.",
+          size=10)
+    _body(doc,
+          "A complete list of features computed in this stage, including their definitions, data "
+          "types, and usage across the scoring components, is provided in the Features Reference "
+          "table in later section of this report.",
           size=10)
     _body(doc,
           "Caveat: Recurring payments (monthly, quarterly, semi-annual, annual cycles) are detected "
@@ -505,7 +560,7 @@ def _page2(doc, t08_count=0):
 
     _heading(doc, "5. Rule-Based Flags", level=2)
     _body(doc,
-          "Ten binary rules derived from established forensic audit practice. Each triggers a "
+          "Nine binary rules derived from established forensic audit practice. Each triggers a "
           "flag (1) or not (0) per transaction line:",
           size=10)
     rules = [
@@ -513,10 +568,8 @@ def _page2(doc, t08_count=0):
         "fabricated or manually chosen amounts sometimes exhibit round number bias, where "
         "individuals select psychologically convenient figures rather than amounts arising from "
         "genuine invoices (Nigrini, 2012; ACFE Fraud Examiners Manual).",
-        "Weekend payment — invoice dated on a Saturday or Sunday. "
-        "Payments outside business hours may bypass the normal multi-person review process.",
-        "Month-end — voucher accounting date in the last 3 calendar days of the month. May indicate "
-        "rushed processing to meet budget targets or period-end financial reporting cut-offs.",
+        "Weekend payment — voucher accounting date falls on a Saturday or Sunday. "
+        "Payments processed outside business hours may bypass the normal multi-person review process.",
         "Near approval threshold — within 5% below SGD 1K / 5K / 10K / 50K / 100K. Known as "
         "'structuring' in forensic accounting — deliberately keeping amounts below authorisation "
         "thresholds to avoid triggering higher-level approval.",
@@ -530,9 +583,10 @@ def _page2(doc, t08_count=0):
         "legitimate but warrant review, particularly when paired with other risk signals on the "
         "corresponding original payment.",
         "Split purchase risk — the same vendor has two or more invoices on the same invoice date "
-        "with alphanumerically sequential invoice number suffixes (e.g. INV-1001, INV-1002). "
-        "May indicate a single purchase deliberately split across multiple invoices to avoid "
-        "triggering a higher-level approval threshold.",
+        "with alphanumerically sequential invoice number suffixes (e.g. INV-1001, INV-1002) AND "
+        "the group total falls within 5% below $6,000 or $90,000 (i.e. $5,700–<$6,000 or "
+        "$85,500–<$90,000). May indicate a single purchase deliberately split across multiple "
+        "invoices to avoid triggering a higher-level approval threshold.",
         "Transposed amount — the payment amount differs from another transaction to the same vendor "
         "with the same description by exactly one pair of transposed digits in the full cent-level "
         "amount (e.g. SGD 4,800 vs SGD 8,400). May indicate a keying error resulting in significant "
@@ -557,8 +611,8 @@ def _page2(doc, t08_count=0):
     p.alignment = WD_ALIGN_PARAGRAPH.LEFT
     doc.add_paragraph()
     _body(doc,
-          "The rule flags score is the fraction of the 10 binary rules triggered for that line "
-          "(e.g. 2 rules triggered = 2/10 = 0.20). The Benford score is normalised relative to "
+          "The rule flags score is the fraction of the 9 binary rules triggered for that line "
+          "(e.g. 2 rules triggered = 2/9 = 0.22). The Benford score is normalised relative to "
           "the maximum Benford deviation in the dataset. The Z-score signal is the larger of the "
           "vendor z-score and cost centre z-score, min-max normalised to [0, 1] across all lines.",
           size=10)
@@ -646,7 +700,7 @@ def _page2(doc, t08_count=0):
     doc.add_paragraph()
     _body(doc,
           "Flag density = total rule flags triggered across all lines in the voucher ÷ "
-          "(10 flag types × number of lines). The 60/25/15 split reflects that audit significance "
+          "(9 flag types × number of lines). The 60/25/15 split reflects that audit significance "
           "is primarily driven by the worst line in the voucher, moderated by whether other lines "
           "are also elevated, and supplemented by the breadth of rule flag coverage. For multi-line "
           "vouchers, reason codes in the output are prefixed with [Account Code] so auditors can "
@@ -698,33 +752,6 @@ def _page2(doc, t08_count=0):
           size=10)
     doc.add_paragraph()
 
-    # ---- Caveats ----
-    _heading(doc, "Important Caveats", level=2)
-    _body(doc,
-          "The following limitations should be understood before acting on the tool's output:",
-          size=10)
-    caveats = [
-        "Not a fraud detection tool — a high voucher score indicates a statistically unusual "
-        "transaction that warrants attention; it is not evidence of fraud or error. Professional "
-        "judgement is required for all selected vouchers. Transactions not flagged should not be "
-        "assumed free from irregularities, as sophisticated anomalies that closely mimic normal "
-        "payment patterns may go undetected.",
-        "Line-item scope — the tool scores individual transaction lines, not total voucher amounts. "
-        "A large voucher split across many small lines of normal individual amounts may not score "
-        "highly even if the total is anomalous. Auditors should review total voucher values "
-        "alongside individual line scores.",
-        "Pre-calibrated weights — component weights and rule thresholds are calibrated for typical "
-        "corporate payment datasets. Unusual compositions (e.g. predominantly recurring payments, "
-        "narrow amount bands) may require recalibration. Weights can be overridden via "
-        "'sample_selector.WEIGHTS' before calling select_samples().",
-        "Declared component weights are approximate — the five weights describe intended relative "
-        "importance, not precisely isolated statistical contributions. Features shared across "
-        "components (amount z-scores and rule flags feed both their dedicated scoring components "
-        "and Isolation Forest/LOF) carry marginally more effective influence than their labelled "
-        "weight suggests. This does not affect the relative voucher rankings in practice.",
-    ]
-    for caveat in caveats:
-        _bullet(doc, caveat, size=10)
 
 
 # ---------------------------------------------------------------------------
@@ -835,17 +862,10 @@ ML_FEATURE_TABLE_DATA = [
     ),
     (
         "Weekend payment",
-        "Whether the invoice is dated on a Saturday or Sunday.",
+        "Whether the voucher accounting date falls on a Saturday or Sunday.",
         "Saturday or Sunday",
         "IF, LOF",
-        "Payments authorised outside business hours may bypass the normal multi-person review and approval process.",
-    ),
-    (
-        "Month-end",
-        "Whether the voucher accounting date falls in the last 3 calendar days of the month.",
-        "Last 3 calendar days of month",
-        "IF, LOF",
-        "May indicate rushed processing to meet budget targets or period-end financial reporting cut-offs.",
+        "Payments processed outside business hours may bypass the normal multi-person review and approval process.",
     ),
     (
         "Near approval threshold",
@@ -920,8 +940,10 @@ ML_FEATURE_TABLE_DATA = [
     (
         "Split purchase risk",
         "Whether the same vendor has two or more invoices on the same invoice date with alphanumerically "
-        "sequential invoice number suffixes (e.g. INV-1001, INV-1002, INV-1003).",
-        "≥ 2 invoices from same vendor on same date with consecutive numeric suffixes",
+        "sequential invoice number suffixes (e.g. INV-1001, INV-1002, INV-1003) AND the group total "
+        "falls within 5% below $6,000 or $90,000 ($5,700–<$6,000 or $85,500–<$90,000).",
+        "≥ 2 invoices from same vendor on same date with consecutive numeric suffixes; group total "
+        "within $5,700–<$6,000 or $85,500–<$90,000",
         "IF, LOF",
         "A known technique for circumventing approval thresholds by splitting a single purchase into "
         "multiple invoices, each below the limit requiring higher-level authorisation.",
@@ -1000,9 +1022,9 @@ def _page6_feature_table(doc):
 
     _heading(doc, "Features Used in Machine Learning Models", level=2)
     _body(doc,
-          "The seventeen features below are candidates for the ML models in each run. Before fitting, "
+          "The sixteen features below are candidates for the ML models in each run. Before fitting, "
           "Spearman correlation pruning removes one of any pair with |correlation| > 0.85, so the "
-          "active feature set may be smaller than seventeen depending on the dataset. Surviving features "
+          "active feature set may be smaller than sixteen depending on the dataset. Surviving features "
           "are normalised via RobustScaler before being fed into the models. Amount z-scores "
           "additionally drive the Statistical Z-Score component directly.",
           size=9)
@@ -1052,24 +1074,28 @@ def export_word_report(df, df_vouchers, selected_vouchers, benford_stats, output
         except KeyError:
             pass
 
-    print("    Page 1 — Executive Summary")
+    print("    Page 1 — Scope and Limitations")
+    _page_caveats(doc)
+    doc.add_page_break()
+
+    print("    Page 2 — Executive Summary")
     _page1(doc, df, df_vouchers, selected_vouchers, benford_stats)
     doc.add_page_break()
 
-    print("    Page 2 — Methodology")
+    print("    Page 3 — Methodology")
     t08_count = int(df_vouchers.get('is_t08_vendor', pd.Series(dtype=bool)).sum())
     _page2(doc, t08_count)
 
-    print("    Page 3 — Analytical Charts")
+    print("    Page 4 — Analytical Charts")
     _page3_charts(doc, df_vouchers, selected_vouchers, benford_stats)
 
-    print("    Page 4 — Payment Distribution & Timeline")
+    print("    Page 5 — Payment Distribution & Timeline")
     _page4_distributions(doc, df)
 
-    print("    Page 5 — Vendor Analysis")
+    print("    Page 6 — Vendor Analysis")
     _page5_vendors(doc, df)
 
-    print("    Page 6 — Feature Reference Table")
+    print("    Page 7 — Feature Reference Table")
     _page6_feature_table(doc)
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)

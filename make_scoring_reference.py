@@ -181,9 +181,9 @@ def build_overview(ws):
          "Min-max across all transactions in run",
          "Sheet: Composite Score", "zscore_score"),
         ("Rule-Based Flags", "15 %", "[0, 1]",
-         "Any of 10 binary rules triggered",
-         "10 forensic audit rules",
-         "Fraction of 10 rules triggered (÷10)",
+         "Any of 9 binary rules triggered",
+         "9 forensic audit rules",
+         "Fraction of 9 rules triggered (÷9)",
          "Sheet: Composite Score", "rule_flags_score"),
         ("Benford's Law", "5 %", "[0, 1]",
          "First digit among top-3 most deviant digits",
@@ -219,7 +219,7 @@ def build_overview(ws):
                 "  Single-line vouchers:  voucher_score  =  risk_score  (no rollup)", h=16)
     r = blank(ws, r, 4)
     r = body(ws, r,
-             "flag_density = total rule flags across all lines ÷ (10 × number of lines). "
+             "flag_density = total rule flags across all lines ÷ (9 × number of lines). "
              "The 60/25/15 split weights the worst line most heavily, moderates by whether "
              "other lines are also elevated, and adds breadth coverage via flag density.", h=36)
 
@@ -334,12 +334,13 @@ def build_if(ws):
              "median and scales by its interquartile range, making the model robust to "
              "the extreme outliers it is trying to detect.")
     r = body(ws, r,
-             "Up to 15 features enter the matrix (subject to Spearman correlation pruning "
+             "Up to 16 features enter the matrix (subject to Spearman correlation pruning "
              "at |corr| > 0.85 within the run):\n"
              "amount_log, amount_zscore_vendor, amount_zscore_costcentre, vendor_txn_count, "
              "processing_days_zscore, desc_length_zscore, vendor_amount_cv, "
-             "is_round_number, is_weekend_payment, is_month_end, is_individual_payee, "
-             "near_threshold, same_amount_vendor_irregular, is_duplicate, is_reversal",
+             "is_round_number, is_weekend_payment, is_individual_payee, "
+             "near_threshold, same_amount_vendor_irregular, is_duplicate, is_reversal, "
+             "is_split_purchase_risk, is_transposed_amount",
              h=54)
     r = blank(ws, r)
 
@@ -776,7 +777,7 @@ def build_composite(ws):
          "(max(|z_vendor|,|z_cc|) − min) / (max − min)",
          "[0, 1]", "zscore_anomaly: max z > 2.0", "Sheet: Composite Score", "", ""),
         ("rule_flags_score", "15%",
-         "Σ binary_flags / 10",
+         "Σ binary_flags / 9",
          "[0, 1]", "Any rule triggered (score > 0)", "Sheet: Composite Score", "", ""),
         ("benford_score", "5%",
          "deviation(first_digit) / max(deviation)  [suppressed if all others weak]",
@@ -813,19 +814,18 @@ def build_composite(ws):
     r = section(ws, r, "3. Rule-Based Flags Component Detail")
     r = blank(ws, r, 4)
     r = formula(ws, r,
-                "rule_flags_score  =  (Σ flag_i  for i ∈ 10 rules)  /  10")
+                "rule_flags_score  =  (Σ flag_i  for i ∈ 9 rules)  /  9")
     r = blank(ws, r, 4)
     r = hdr_row(ws, r, ["Flag Column", "Rule", "Condition", "Value", "", "", "", ""])
     flag_rules = [
-        ("is_round_number",             "Round number",             "amount mod 100 == 0",                         "0 or 1"),
-        ("is_weekend_payment",          "Weekend payment",          "Invoice Date is Saturday or Sunday",          "0 or 1"),
-        ("is_month_end",                "Month-end",                "Voucher Accounting day ≥ days_in_month − 2",  "0 or 1"),
-        ("near_threshold",              "Near approval threshold",  "amount within 5% below 1K/5K/10K/50K/100K",  "0 or 1"),
-        ("is_individual_payee",         "Individual payee",         "Vendor ID matches NRIC/FIN regex",            "0 or 1"),
-        ("same_amount_vendor_irregular","Irregular repeat amount",  "Same amount to same vendor >2×, no regular cycle","0 or 1"),
-        ("is_duplicate",                "Duplicate payment",        "Same (Vendor ID, Invoice #, Amount) in >1 Voucher ID","0 or 1"),
-        ("is_reversal",                 "Reversal / credit note",   "Amount < 0",                                  "0 or 1"),
-        ("is_split_purchase_risk",      "Split purchase risk",      "Same vendor, same Invoice Date, ≥2 invoices with consecutive numeric suffixes","0 or 1"),
+        ("is_round_number",             "Round number",             "amount mod 100 == 0",                                                          "0 or 1"),
+        ("is_weekend_payment",          "Weekend payment",          "Voucher Accounting Date is Saturday or Sunday",                                 "0 or 1"),
+        ("near_threshold",              "Near approval threshold",  "amount within 5% below 1K/5K/10K/50K/100K",                                    "0 or 1"),
+        ("is_individual_payee",         "Individual payee",         "Vendor ID matches NRIC/FIN regex",                                              "0 or 1"),
+        ("same_amount_vendor_irregular","Irregular repeat amount",  "Same amount to same vendor >2×, no regular cycle",                             "0 or 1"),
+        ("is_duplicate",                "Duplicate payment",        "Same (Vendor ID, Invoice #, Amount) in >1 Voucher ID",                         "0 or 1"),
+        ("is_reversal",                 "Reversal / credit note",   "Amount < 0",                                                                   "0 or 1"),
+        ("is_split_purchase_risk",      "Split purchase risk",      "Same vendor, same Invoice Date, ≥2 invoices with consecutive numeric suffixes; group total $5,700–<$6,000 or $85,500–<$90,000","0 or 1"),
         ("is_transposed_amount",        "Transposed amount",        "Same vendor + description, digit multiset identical but amount differs (positive only)","0 or 1"),
     ]
     for i, (col, rule, cond, val) in enumerate(flag_rules):
@@ -841,7 +841,7 @@ def build_composite(ws):
              "After line-level risk_scores are computed, lines are grouped by Voucher ID "
              "(the document auditors physically pull):")
     r = formula(ws, r,
-                "flag_density   =  total rule flags across all lines  /  (10 × line_count)")
+                "flag_density   =  total rule flags across all lines  /  (9 × line_count)")
     r = formula(ws, r,
                 "voucher_score  =  0.60 × max(risk_score)  +  0.25 × mean(risk_score)"
                 "  +  0.15 × flag_density   [multi-line]")

@@ -37,23 +37,29 @@ def _is_weekend_payment(date):
 def _detect_duplicates(df):
     """Flag rows where the same invoice (vendor + invoice number + amount) appears in
     more than one distinct Voucher ID — a potential double payment.
-    Returns (is_duplicate Series, duplicate_matched_invoice Series)."""
+    Returns (is_duplicate Series, duplicate_matched_voucher Series) where
+    duplicate_matched_voucher holds the counterpart Voucher ID(s), comma-separated."""
     is_dup = pd.Series(0, index=df.index)
-    matched_inv = pd.Series('', index=df.index, dtype=object)
+    matched_vch = pd.Series('', index=df.index, dtype=object)
     has_invoice = df['Invoice Number'].notna() & (
         df['Invoice Number'].astype(str).str.strip() != ''
     )
     if not has_invoice.any():
-        return is_dup, matched_inv
+        return is_dup, matched_vch
     relevant = df[has_invoice]
     key = ['Vendor ID', 'Invoice Number', AMOUNT_COL]
     cross_voucher = relevant.groupby(key)['Voucher ID'].transform('nunique') > 1
     flagged_idx = relevant[cross_voucher].index
     is_dup.loc[flagged_idx] = 1
-    matched_inv.loc[flagged_idx] = (
-        relevant.loc[flagged_idx, 'Invoice Number'].astype(str).str.strip()
-    )
-    return is_dup, matched_inv
+    # For each flagged group, record the OTHER Voucher ID(s) for each row
+    flagged_relevant = relevant.loc[flagged_idx]
+    for _grp_key, grp in flagged_relevant.groupby(key):
+        all_vids = sorted(grp['Voucher ID'].astype(str).unique())
+        for idx, row in grp.iterrows():
+            own = str(row['Voucher ID'])
+            others = [v for v in all_vids if v != own]
+            matched_vch.loc[idx] = ', '.join(others)
+    return is_dup, matched_vch
 
 
 def _vendor_amount_cv(df):
@@ -112,9 +118,14 @@ def _detect_recurring(df):
     return is_recurring
 
 
+_SPLIT_LO_BAND = (5_700, 6_000)
+_SPLIT_HI_BAND = (85_500, 90_000)
+
+
 def _detect_split_purchase(df):
-    """Flag transactions where the same vendor has 2+ invoices on the same date
-    with alphanumerically sequential numeric suffixes — possible split purchase."""
+    """Flag transactions where the same vendor has 2+ invoices on the same date with
+    alphanumerically sequential numeric suffixes AND the group total falls within 5%
+    below $6,000 or $90,000 (threshold bands $5,700–<$6,000 or $85,500–<$90,000)."""
     result = pd.Series(0, index=df.index)
 
     suffixes = df['Invoice Number'].astype(str).str.strip().str.extract(r'(\d+)$', expand=False)
@@ -126,6 +137,7 @@ def _detect_split_purchase(df):
         'idate':      df['Invoice Date'],
         'has_suffix': suffixes.notna().astype(int),
         'suffix':     suffixes,
+        'amount':     df[AMOUNT_COL],
     }, index=df.index).dropna(subset=['idate'])
 
     if work.empty:
@@ -147,9 +159,17 @@ def _detect_split_purchase(df):
     mx  = gs.transform('max')
     nu  = gs.transform('nunique')
 
-    # Consecutive integer range: max − min == count − 1 with no duplicates
+    # Condition 4: consecutive integer range — max − min == count − 1 with no duplicates
     is_split = (mx - mn == cnt - 1) & (cnt == nu)
-    result.loc[valid[is_split].index] = 1
+
+    # Condition 5: group total falls within 5% below $6,000 or $90,000
+    valid['grp_sum'] = valid.groupby(['vid', 'idate'])['amount'].transform('sum')
+    is_in_band = (
+        ((valid['grp_sum'] >= _SPLIT_LO_BAND[0]) & (valid['grp_sum'] < _SPLIT_LO_BAND[1])) |
+        ((valid['grp_sum'] >= _SPLIT_HI_BAND[0]) & (valid['grp_sum'] < _SPLIT_HI_BAND[1]))
+    )
+
+    result.loc[valid[is_split & is_in_band].index] = 1
     return result
 
 
@@ -231,12 +251,9 @@ def engineer_features(df):
 
     print("  Computing rule-based flags...")
     df['is_reversal'] = (df[AMOUNT_COL] < 0).astype(int)
-    df['is_duplicate'], df['duplicate_matched_invoice'] = _detect_duplicates(df)
+    df['is_duplicate'], df['duplicate_matched_voucher'] = _detect_duplicates(df)
     df['is_round_number'] = df[AMOUNT_COL].apply(_round_number)
-    df['is_weekend_payment'] = df['Invoice Date'].apply(_is_weekend_payment)
-    df['is_month_end'] = df['Voucher Accounting Date'].apply(
-        lambda d: 0 if pd.isna(d) else (1 if d.day >= (d.days_in_month - 2) else 0)
-    )
+    df['is_weekend_payment'] = df['Voucher Accounting Date'].apply(_is_weekend_payment)
     df['near_threshold'] = df[AMOUNT_COL].apply(_near_threshold)
     df['is_individual_payee'] = df['Vendor ID'].apply(_individual_payee)
     df['vendor_txn_count'] = df.groupby('Vendor ID')['Voucher ID'].transform('count')
@@ -295,7 +312,6 @@ def engineer_features(df):
         'desc_length_zscore',
         'is_round_number',
         'is_weekend_payment',
-        'is_month_end',
         'is_individual_payee',
         'near_threshold',
         'same_amount_vendor_irregular',

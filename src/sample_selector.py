@@ -19,7 +19,6 @@ _VCH_W_FLAGS = 0.15
 FLAG_COLS = [
     'is_round_number',
     'is_weekend_payment',
-    'is_month_end',
     'near_threshold',
     'is_individual_payee',
     'same_amount_vendor_irregular',
@@ -91,10 +90,7 @@ def _build_reason(row):
         parts.append(f"Round number amount (SGD {amt:,.0f})" if isinstance(amt, (int, float)) else "Round number amount")
 
     if row.get('is_weekend_payment', 0):
-        parts.append("Transaction on weekend (Saturday or Sunday)")
-
-    if row.get('is_month_end', 0):
-        parts.append("Month-end transaction (voucher accounting date in last 3 days of month)")
+        parts.append("Payment voucher processed on weekend (Saturday or Sunday)")
 
     if row.get('near_threshold', 0):
         parts.append("Amount just below approval threshold")
@@ -103,14 +99,14 @@ def _build_reason(row):
         parts.append("Repeated amount for same vendor (irregular schedule)")
 
     if row.get('is_duplicate', 0):
-        matched = str(row.get('duplicate_matched_invoice', '') or '(no invoice number)').strip() or '(no invoice number)'
-        parts.append(f"Potential duplicate payment — same vendor, invoice, and amount found in other voucher(s) (matched against invoice: {matched})")
+        matched = str(row.get('duplicate_matched_voucher', '') or '').strip() or '(unknown)'
+        parts.append(f"Potential duplicate payment — same vendor, invoice number, and amount found in other voucher(s) (see Voucher ID(s): {matched})")
 
     if row.get('is_reversal', 0):
         parts.append("Reversal or credit note (negative amount)")
 
     if row.get('is_split_purchase_risk', 0):
-        parts.append("Split purchase risk — same vendor, same invoice date, sequential invoice numbers")
+        parts.append("Split purchase risk — same vendor, same invoice date, sequential invoice numbers, and total amount falls within 5% below $6,000 or $90,000 approval threshold")
 
     if row.get('is_transposed_amount', 0):
         matched = str(row.get('transposed_matched_invoice', '') or '(no invoice number)').strip() or '(no invoice number)'
@@ -221,11 +217,17 @@ def _rollup_vouchers(df):
             if pd.notna(d) and str(d).strip() not in ('', 'nan', 'NaN', 'None')
         ]
 
+        # Collect unique Invoice Dates for this voucher (sorted, DD/MM/YYYY)
+        inv_dates = sorted(
+            grp['Invoice Date'].dropna().dt.strftime('%d/%m/%Y').unique().tolist()
+        ) if 'Invoice Date' in grp.columns else []
+
         records.append({
             'Voucher ID':                    str(voucher_id),
             'Vendor ID':                     top_line.get('Vendor ID', ''),
             'Vendor Name':                   top_line.get('Vendor Name', ''),
             'Invoice Number(s)':             ', '.join(inv_nums),
+            'Invoice Date(s)':               ' | '.join(inv_dates),
             'Voucher Line Description(s)':   ' | '.join(line_descs),
             'voucher_total_amount':     round(float(grp[AMOUNT_COL].sum()), 2),
             'voucher_line_count':       line_count,
@@ -310,79 +312,179 @@ def _similarity_filter(selected, df_vouchers, df_scored, threshold=0.70):
     selected = selected.copy()
     selected['similarity_deduplicated'] = False
 
-    tier_order = ['HIGH', 'MEDIUM', 'LOW']
     selected_ids = set(selected['Voucher ID'].tolist())
+
+    # Description cache to avoid repeated lookups
+    desc_cache = {}
+
+    def _get_desc(vid):
+        if vid not in desc_cache:
+            desc_cache[vid] = _get_voucher_desc(vid, df_scored)
+        return desc_cache[vid]
+
+    # Pre-populate cache for all currently selected vouchers
+    for vid in selected_ids:
+        _get_desc(vid)
 
     vendors = selected['Vendor ID'].tolist()
     vendor_counts = pd.Series(vendors).value_counts()
     multi_vendors = vendor_counts[vendor_counts >= 2].index.tolist()
 
     for vendor in multi_vendors:
-        vendor_rows = selected[selected['Vendor ID'] == vendor].copy()
-        vendor_rows = vendor_rows.sort_values('voucher_score', ascending=False)
+        vendor_rows = selected[selected['Vendor ID'] == vendor].sort_values(
+            'voucher_score', ascending=False
+        )
 
-        retained = []
+        retained_vids = []
         to_drop = []
 
         for _, vrow in vendor_rows.iterrows():
             vid = vrow['Voucher ID']
-            desc = _get_voucher_desc(vid, df_scored)
-            too_similar = any(
-                _jaccard_similarity(desc, _get_voucher_desc(r['Voucher ID'], df_scored)) > threshold
-                for r in retained
-            )
-            if too_similar:
-                # record the similarity score for logging
+            desc = _get_desc(vid)
+            if retained_vids:
                 best_sim = max(
-                    _jaccard_similarity(desc, _get_voucher_desc(r['Voucher ID'], df_scored))
-                    for r in retained
+                    _jaccard_similarity(desc, _get_desc(rv)) for rv in retained_vids
                 )
-                to_drop.append((vid, best_sim, vrow['voucher_risk_tier']))
             else:
-                retained.append(vrow)
+                best_sim = 0.0
+            if best_sim > threshold:
+                to_drop.append((vid, best_sim))
+            else:
+                retained_vids.append(vid)
 
-        for (drop_id, sim_score, drop_tier) in to_drop:
-            # build retained description set for this vendor
-            retained_descs = [
-                _get_voucher_desc(r['Voucher ID'], df_scored) for r in retained
-            ]
+        for (drop_id, sim_score) in to_drop:
+            # Search ALL unselected vouchers across all vendors, best score first
+            current_retained_ids = selected_ids - {drop_id}
+            candidates = df_vouchers[
+                ~df_vouchers['Voucher ID'].isin(selected_ids)
+            ].sort_values('voucher_score', ascending=False)
+
             replacement = None
-            tiers_to_try = [drop_tier] + [t for t in tier_order if t != drop_tier]
-            for tier in tiers_to_try:
-                candidates = df_vouchers[
-                    (df_vouchers['Vendor ID'] == vendor) &
-                    (df_vouchers['voucher_risk_tier'] == tier) &
-                    (~df_vouchers['Voucher ID'].isin(selected_ids))
-                ].sort_values('voucher_score', ascending=False)
-                for _, cand in candidates.iterrows():
-                    cand_desc = _get_voucher_desc(cand['Voucher ID'], df_scored)
-                    if all(_jaccard_similarity(cand_desc, rd) <= threshold for rd in retained_descs):
-                        replacement = cand
-                        break
-                if replacement is not None:
+            for _, cand in candidates.iterrows():
+                cand_vid = cand['Voucher ID']
+                cand_desc = _get_desc(cand_vid)
+                if all(
+                    _jaccard_similarity(cand_desc, _get_desc(rv)) <= threshold
+                    for rv in current_retained_ids
+                ):
+                    replacement = cand
                     break
 
             drop_mask = selected['Voucher ID'] == drop_id
             if replacement is not None:
+                rep_vid = replacement['Voucher ID']
                 rep_row = pd.DataFrame([replacement.to_dict()])
                 rep_row['similarity_deduplicated'] = True
-                # carry over columns present in selected but not in df_vouchers
                 for col in ['Sample #', 'Sample_Rationale']:
                     if col in selected.columns and col not in rep_row.columns:
                         rep_row[col] = selected.loc[drop_mask, col].values[0]
                 selected = selected[~drop_mask]
                 selected = pd.concat([selected, rep_row], ignore_index=True)
                 selected_ids.discard(drop_id)
-                selected_ids.add(replacement['Voucher ID'])
-                retained.append(replacement)
+                selected_ids.add(rep_vid)
+                _get_desc(rep_vid)
                 print(f"  [Similarity filter] Replaced Voucher {drop_id} with Voucher "
-                      f"{replacement['Voucher ID']} (same vendor, similar description, "
-                      f"similarity={sim_score:.2f})")
+                      f"{rep_vid} (score={replacement['voucher_score']:.4f}, "
+                      f"similarity with dropped voucher={sim_score:.2f})")
             else:
                 print(f"  [Similarity filter] Kept Voucher {drop_id} (no replacement "
-                      f"available; same vendor, similar description, similarity={sim_score:.2f})")
+                      f"available, similarity={sim_score:.2f})")
 
     # Rebuild Sample # after replacements — place it as the first column
+    selected = selected.sort_values('voucher_score', ascending=False).reset_index(drop=True)
+    selected['Sample #'] = range(1, len(selected) + 1)
+    cols = ['Sample #'] + [c for c in selected.columns if c != 'Sample #']
+    return selected[cols]
+
+
+_VENDOR_CAP_NOTE = (
+    " | NOTE FOR AUDITOR: This vendor had multiple anomalous vouchers identified by the tool "
+    "but has been limited to 2 samples to ensure sample diversity. Auditors are advised to "
+    "review this vendor's transactions more broadly beyond the selected samples."
+)
+
+
+def _vendor_cap(selected, df_vouchers, df_scored, threshold=0.70):
+    """Limit selected vouchers to at most 2 per Vendor ID.
+    Excess vouchers are replaced with the next highest-scoring unselected vouchers
+    (applying the same similarity check as the similarity filter).
+    The 2 retained vouchers for any capped vendor receive a NOTE FOR AUDITOR annotation."""
+    selected = selected.copy()
+    selected['vendor_capped'] = False
+
+    selected_ids = set(selected['Voucher ID'].tolist())
+
+    desc_cache = {}
+
+    def _get_desc(vid):
+        if vid not in desc_cache:
+            desc_cache[vid] = _get_voucher_desc(vid, df_scored)
+        return desc_cache[vid]
+
+    for vid in selected_ids:
+        _get_desc(vid)
+
+    vendor_counts = selected['Vendor ID'].value_counts()
+    capped_vendors = vendor_counts[vendor_counts > 2].index.tolist()
+
+    for vendor in capped_vendors:
+        vendor_rows = selected[selected['Vendor ID'] == vendor].sort_values(
+            'voucher_score', ascending=False
+        )
+        n_total = len(vendor_rows)
+        keep_rows = vendor_rows.head(2)
+        drop_rows = vendor_rows.iloc[2:]
+        n_excess = len(drop_rows)
+
+        print(f"  [Vendor cap] Vendor '{vendor}' had {n_total} vouchers selected — "
+              f"capped to 2. Replaced {n_excess} voucher(s).")
+
+        # Annotate the 2 kept vouchers
+        for keep_vid in keep_rows['Voucher ID'].tolist():
+            mask = selected['Voucher ID'] == keep_vid
+            selected.loc[mask, 'voucher_reason_codes'] = (
+                selected.loc[mask, 'voucher_reason_codes'].values[0] + _VENDOR_CAP_NOTE
+            )
+            selected.loc[mask, 'vendor_capped'] = True
+
+        # Replace excess vouchers
+        for _, drop_row in drop_rows.iterrows():
+            drop_id = drop_row['Voucher ID']
+            drop_mask = selected['Voucher ID'] == drop_id
+            current_retained_ids = selected_ids - {drop_id}
+
+            candidates = df_vouchers[
+                ~df_vouchers['Voucher ID'].isin(selected_ids)
+            ].sort_values('voucher_score', ascending=False)
+
+            replacement = None
+            for _, cand in candidates.iterrows():
+                cand_vid = cand['Voucher ID']
+                cand_desc = _get_desc(cand_vid)
+                if all(
+                    _jaccard_similarity(cand_desc, _get_desc(rv)) <= threshold
+                    for rv in current_retained_ids
+                ):
+                    replacement = cand
+                    break
+
+            if replacement is not None:
+                rep_vid = replacement['Voucher ID']
+                rep_row = pd.DataFrame([replacement.to_dict()])
+                rep_row['vendor_capped'] = False
+                rep_row['similarity_deduplicated'] = False
+                for col in ['Sample #', 'Sample_Rationale']:
+                    if col in selected.columns and col not in rep_row.columns:
+                        rep_row[col] = selected.loc[drop_mask, col].values[0]
+                selected = selected[~drop_mask]
+                selected = pd.concat([selected, rep_row], ignore_index=True)
+                selected_ids.discard(drop_id)
+                selected_ids.add(rep_vid)
+                _get_desc(rep_vid)
+            else:
+                selected = selected[~drop_mask]
+                selected_ids.discard(drop_id)
+
     selected = selected.sort_values('voucher_score', ascending=False).reset_index(drop=True)
     selected['Sample #'] = range(1, len(selected) + 1)
     cols = ['Sample #'] + [c for c in selected.columns if c != 'Sample #']
@@ -445,9 +547,12 @@ def select_samples(df, n_samples=25):
         selected['Voucher ID'].map(real_tiers).fillna(selected['voucher_risk_tier'])
     )
 
-    # Apply similarity deduplication within vendor
+    # Apply similarity deduplication (any-vendor replacement) then vendor cap
     print("  Applying similarity deduplication within vendors...")
     selected = _similarity_filter(selected, df_vouchers, df)
+
+    print("  Applying vendor cap (max 2 per vendor)...")
+    selected = _vendor_cap(selected, df_vouchers, df)
 
     n_high = int((df_vouchers['voucher_risk_tier'] == 'HIGH').sum())
     n_med  = int((df_vouchers['voucher_risk_tier'] == 'MEDIUM').sum())

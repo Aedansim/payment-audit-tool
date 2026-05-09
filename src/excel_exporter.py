@@ -64,7 +64,7 @@ _VCH_DISPLAY_COLS = [
     'Voucher ID', 'Vendor ID', 'Vendor Name', 'Invoice Number(s)',
     'Voucher Line Description(s)',
     'voucher_total_amount', 'voucher_line_count', 'voucher_score', 'voucher_risk_tier',
-    'voucher_flag_count', 'voucher_any_ml_consensus',
+    'voucher_flag_count', 'voucher_any_ml_consensus', 'vendor_capped',
     'voucher_reason_codes',
 ]
 
@@ -72,7 +72,8 @@ _VCH_HEADERS = [
     'Voucher ID', 'Vendor ID', 'Vendor Name', 'Invoice Number(s)',
     'Voucher Line Description(s)',
     'Total Amount (SGD)', 'Line Count', 'Voucher Score', 'Risk Tier',
-    'Flag Count', 'ML Consensus', 'Reason Codes',
+    'Flag Count', 'ML Consensus', 'Vendor Capped',
+    'Reason Codes',
 ]
 
 
@@ -138,7 +139,7 @@ _LINE_SCORE_COLS = {
 }
 
 _LINE_FLAG_COLS = [
-    'is_round_number', 'is_weekend_payment', 'is_month_end',
+    'is_round_number', 'is_weekend_payment',
     'near_threshold', 'is_individual_payee',
     'same_amount_vendor_irregular', 'is_duplicate', 'is_reversal',
     'is_split_purchase_risk', 'is_transposed_amount',
@@ -289,7 +290,7 @@ def _sheet_all_lines(wb, df_scored):
 
     score_cols = [c for c in _SCORE_COLS_DISPLAY if c in df_scored.columns]
     flag_cols  = [c for c in [
-        'is_round_number', 'is_weekend_payment', 'is_month_end',
+        'is_round_number', 'is_weekend_payment',
         'near_threshold', 'is_individual_payee',
         'same_amount_vendor_irregular', 'is_duplicate', 'is_reversal',
         'is_split_purchase_risk', 'is_transposed_amount',
@@ -432,7 +433,42 @@ def _sheet_benford(wb, benford_summary, stats):
     ws.merge_cells(f'A{_key_row}:G{_key_row}')
     ws.row_dimensions[_key_row].height = 72
 
-    tbl_start = 16
+    # Interpretation guidance rows (rows 15–18)
+    _LIGHT_BLUE = PatternFill("solid", fgColor="BDD7EE")
+    _interp_items = [
+        (
+            "High MAD + Statistically Significant p-value",
+            "The distortion is large enough in magnitude to be visible at the aggregate level. "
+            "This means the anomaly is either widespread across many transactions, or the "
+            "concentrated transactions are so extreme in their deviation that they are dragging "
+            "the overall distribution noticeably. This warrants a stronger audit response and a "
+            "broader review of the dataset — not just a focus on a few deviant digit groups.",
+        ),
+        (
+            "Low MAD + Statistically Significant p-value",
+            "The overall distribution still looks broadly healthy. The anomaly is real but "
+            "subtle — this suggests fewer transactions are involved, or the manipulation (if any) "
+            "is more careful and targeted. The audit response should be more surgical: look for "
+            "smaller, possibly more deliberate patterns within the flagged digit groups rather "
+            "than conducting a broad dataset review.",
+        ),
+    ]
+    for _i, (_lbl, _txt) in enumerate(_interp_items):
+        _lrow = _key_row + 1 + _i * 2
+        _trow = _lrow + 1
+        _lc = ws.cell(row=_lrow, column=1, value=_lbl)
+        _lc.font = Font(bold=True, size=9)
+        _lc.fill = _LIGHT_BLUE
+        _lc.alignment = Alignment(vertical='center')
+        ws.merge_cells(f'A{_lrow}:G{_lrow}')
+        ws.row_dimensions[_lrow].height = 18
+        _tc = ws.cell(row=_trow, column=1, value=_txt)
+        _tc.font = Font(size=9)
+        _tc.alignment = Alignment(wrap_text=True, vertical='top')
+        ws.merge_cells(f'A{_trow}:G{_trow}')
+        ws.row_dimensions[_trow].height = 60
+
+    tbl_start = 19  # was 16; pushed down by 4 interpretation rows (15–18)
     _write_header_row(ws, list(benford_summary.columns), row=tbl_start)
     for r_idx, row_data in enumerate(benford_summary.itertuples(index=False), start=tbl_start + 1):
         digit = row_data[0]
@@ -537,6 +573,50 @@ def _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats)
     note_cell.alignment = Alignment(wrap_text=True, vertical='top')
     ws.merge_cells(f'A{note_row}:C{note_row}')
     ws.row_dimensions[note_row].height = 40
+
+    # Caveat and selection explanation blocks
+    _summary_extra = [
+        (
+            "Scope and Limitations",
+            "This tool has not been trained on confirmed fraud cases from this organisation. It "
+            "identifies unusual patterns by learning the normal behaviour of the organisation's "
+            "payment data, making it deployable immediately without any prior training or labelled "
+            "dataset. Real-world performance depends on the nature and prevalence of anomalies "
+            "present in the data. Transactions not flagged by the tool should not be interpreted "
+            "as confirmation that they are free from irregularities, as sophisticated anomalies "
+            "that closely mimic normal payment patterns may not be detected. Auditors should not "
+            "rely on the tool to detect fraud but should exercise professional judgement in "
+            "investigating unusual transactions identified.",
+        ),
+        (
+            "Sample Selection Basis",
+            "Samples are selected primarily on the basis of composite risk scores. Additional "
+            "considerations are applied to ensure sample diversity: transactions with a high "
+            "degree of similarity in payment description within the same vendor are deduplicated "
+            "in favour of the higher-scoring voucher, and a limit of 2 samples per vendor is "
+            "enforced. Vendors with IDs beginning with 'T08' (typically government agencies) are "
+            "de-prioritised and will not appear in the sample unless insufficient non-government "
+            "vouchers are available. The selected samples are intended as risk-based suggestions "
+            "to guide audit focus. Auditors should exercise professional judgement in determining "
+            "which payments to proceed with for further testing.",
+        ),
+    ]
+    cur_row = note_row + 2  # leave blank gap
+    for _lbl, _txt in _summary_extra:
+        lc = ws.cell(row=cur_row, column=1, value=_lbl)
+        lc.fill = HEADER_FILL
+        lc.font = HEADER_FONT
+        lc.alignment = Alignment(wrap_text=True, vertical='center')
+        ws.merge_cells(f'A{cur_row}:C{cur_row}')
+        ws.row_dimensions[cur_row].height = 20
+        cur_row += 1
+        tc = ws.cell(row=cur_row, column=1, value=_txt)
+        tc.fill = ALT_FILL
+        tc.font = Font(size=10)
+        tc.alignment = Alignment(wrap_text=True, vertical='top')
+        ws.merge_cells(f'A{cur_row}:C{cur_row}')
+        ws.row_dimensions[cur_row].height = 80
+        cur_row += 2  # blank row between items
 
 
 # ---------------------------------------------------------------------------
