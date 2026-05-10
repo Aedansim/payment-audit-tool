@@ -377,92 +377,8 @@ def _sheet_benford(wb, benford_summary, stats):
     c = conformity_colors.get(stats['conformity'], "000000")
     verdict_cell.font = Font(bold=True, color=c)
 
-    # Explanation block for MAD, Chi-Square, and Conformity Verdict
-    expl_hdr = 9
-    ws.cell(row=expl_hdr, column=1,
-            value="Understanding These Metrics").font = Font(bold=True, size=11, color="1F3864")
-    ws.cell(row=expl_hdr, column=1).fill = PatternFill("solid", fgColor="D9E1F2")
-    ws.merge_cells(f'A{expl_hdr}:G{expl_hdr}')
-    ws.row_dimensions[expl_hdr].height = 18
-
-    _explanations = [
-        (10, "MAD (Mean Absolute Deviation)",
-         "Measures the average absolute difference between observed and Benford-expected first-digit "
-         "frequencies. Thresholds (Nigrini, 2012): < 0.006 = Close Conformity; "
-         "0.006–0.012 = Acceptable Conformity; 0.012–0.015 = Marginally Acceptable; "
-         "> 0.015 = Non-Conformity. A lower MAD means the data more closely follows Benford's Law. "
-         "MAD is the primary practical measure for audit interpretation."),
-        (11, "Chi-Square Statistic & p-value",
-         "Tests whether the observed digit frequencies are statistically significantly different from "
-         "Benford's expected values. A p-value < 0.05 indicates the difference is statistically "
-         "significant. A significant chi-square p-value with small MAD (< 0.012) indicates that "
-         "anomalies are not pervasive at the overall dataset level, but may be concentrated in "
-         "specific transactions or digit groups. In such cases, individual transaction Benford flags "
-         "remain relevant and should be reviewed in conjunction with other risk signals."),
-        (12, "Conformity Verdict",
-         "Summarises the overall finding based on the MAD threshold. Non-Conformity does not mean "
-         "fraud — it means the first-digit distribution is unusual and warrants investigation of the "
-         "most deviant digits. The tool assigns Benford's Law only a 5% weight in the composite risk "
-         "score and further suppresses it when all other risk signals are below average, so a "
-         "Non-Conformity verdict will not on its own cause any voucher to be selected for audit."),
-    ]
-    for _rn, _lbl, _txt in _explanations:
-        ws.cell(row=_rn, column=1, value=_lbl).font = Font(bold=True, size=9, color="1F3864")
-        _ec = ws.cell(row=_rn, column=2, value=_txt)
-        _ec.font = Font(size=9)
-        _ec.alignment = Alignment(wrap_text=True, vertical='top')
-        ws.merge_cells(f'B{_rn}:G{_rn}')
-        ws.row_dimensions[_rn].height = 52
-
-    _key_row = 14
-    _key_msg = (
-        "Key Takeaway: Read MAD and Chi-Square together. MAD quantifies the size of the deviation; "
-        "Chi-Square (p-value) tests whether it is statistically significant for the sample size. "
-        "Transactions whose first digit falls among the most deviant are "
-        "identified by the 'Most Deviant Digits' field above."
-    )
-    _kc = ws.cell(row=_key_row, column=1, value=_key_msg)
-    _kc.font = Font(bold=True, size=9, color="1F3864")
-    _kc.alignment = Alignment(wrap_text=True, vertical='top')
-    _kc.fill = PatternFill("solid", fgColor="FFF2CC")
-    ws.merge_cells(f'A{_key_row}:G{_key_row}')
-    ws.row_dimensions[_key_row].height = 72
-
-    # Interpretation guidance rows (rows 15–18)
-    _LIGHT_BLUE = PatternFill("solid", fgColor="BDD7EE")
-    _interp_items = [
-        (
-            "High MAD (> 0.015) + Statistically Significant p-value (< 0.05)",
-            "The distortion is large enough in magnitude to be visible at the aggregate level. "
-            "This means the anomaly is either widespread across many transactions, or the "
-            "concentrated transactions are so extreme in their deviation that they are dragging "
-            "the overall distribution noticeably. This warrants a stronger audit response and a "
-            "broader review of the dataset — not just a focus on a few deviant digit groups.",
-        ),
-        (
-            "Low MAD (<0.012)+ Statistically Significant p-value (< 0.05)",
-            "The overall distribution still looks broadly healthy. The anomaly is real but "
-            "subtle — this suggests fewer transactions are involved, or the manipulation (if any) "
-            "is more careful and targeted. The audit response should be more surgical: look for "
-            "smaller, possibly more deliberate patterns within the flagged digit groups.",
-        ),
-    ]
-    for _i, (_lbl, _txt) in enumerate(_interp_items):
-        _lrow = _key_row + 1 + _i * 2
-        _trow = _lrow + 1
-        _lc = ws.cell(row=_lrow, column=1, value=_lbl)
-        _lc.font = Font(bold=True, size=9)
-        _lc.fill = _LIGHT_BLUE
-        _lc.alignment = Alignment(vertical='center')
-        ws.merge_cells(f'A{_lrow}:G{_lrow}')
-        ws.row_dimensions[_lrow].height = 18
-        _tc = ws.cell(row=_trow, column=1, value=_txt)
-        _tc.font = Font(size=9)
-        _tc.alignment = Alignment(wrap_text=True, vertical='top')
-        ws.merge_cells(f'A{_trow}:G{_trow}')
-        ws.row_dimensions[_trow].height = 60
-
-    tbl_start = 19  # was 16; pushed down by 4 interpretation rows (15–18)
+    # Digit frequency table — placed immediately after stats
+    tbl_start = 10
     _write_header_row(ws, list(benford_summary.columns), row=tbl_start)
     for r_idx, row_data in enumerate(benford_summary.itertuples(index=False), start=tbl_start + 1):
         digit = row_data[0]
@@ -473,9 +389,7 @@ def _sheet_benford(wb, benford_summary, stats):
             cell.alignment = Alignment(horizontal='center')
             if is_deviant:
                 cell.fill = PatternFill("solid", fgColor="FFE0CC")
-
     ws.row_dimensions[tbl_start].height = 25
-    _auto_width(ws)
 
     note_row = tbl_start + len(benford_summary) + 2
     ws.cell(row=note_row, column=1,
@@ -483,6 +397,92 @@ def _sheet_benford(wb, benford_summary, stats):
                   "are excluded from this analysis as they naturally deviate from "
                   "Benford's distribution without being suspicious.").font = Font(italic=True, size=9, color="666666")
     ws.merge_cells(f'A{note_row}:G{note_row}')
+
+    # Explanation block for MAD, Chi-Square, and Conformity Verdict
+    expl_hdr = note_row + 2
+    ws.cell(row=expl_hdr, column=1,
+            value="Understanding These Metrics").font = Font(bold=True, size=11, color="1F3864")
+    ws.cell(row=expl_hdr, column=1).fill = PatternFill("solid", fgColor="D9E1F2")
+    ws.merge_cells(f'A{expl_hdr}:G{expl_hdr}')
+    ws.row_dimensions[expl_hdr].height = 18
+
+    _explanations = [
+        (expl_hdr + 1, "MAD (Mean Absolute Deviation)",
+         "Measures the average absolute difference between observed and Benford-expected first-digit "
+         "frequencies. Thresholds (Nigrini, 2012): < 0.006 = Close Conformity; "
+         "0.006–0.012 = Acceptable Conformity; 0.012–0.015 = Marginally Acceptable; "
+         "> 0.015 = Non-Conformity. A lower MAD means the data more closely follows Benford's Law. "
+         "MAD is the primary practical measure for audit interpretation."),
+        (expl_hdr + 2, "Chi-Square Statistic & p-value",
+         "Tests whether the observed digit frequencies are statistically significantly different from "
+         "Benford's expected values. A p-value < 0.05 indicates the difference is statistically "
+         "significant. A significant chi-square p-value with small MAD (< 0.012) indicates that "
+         "anomalies are not pervasive at the overall dataset level, but may be concentrated in "
+         "specific transactions or digit groups. In such cases, individual transaction Benford flags "
+         "remain relevant and should be reviewed in conjunction with other risk signals."),
+        (expl_hdr + 3, "Conformity Verdict",
+         "Summarises the overall finding based on the MAD threshold. Non-Conformity does not mean "
+         "fraud — it means the first-digit distribution is unusual and warrants investigation of the "
+         "most deviant digits. The tool assigns Benford's Law only a 5% weight in the composite risk "
+         "score and further suppresses it when all other risk signals are below average, so a "
+         "Non-Conformity verdict will not on its own cause any voucher to be selected for audit."),
+    ]
+    for _rn, _lbl, _txt in _explanations:
+        ws.cell(row=_rn, column=1, value=_lbl).font = Font(bold=True, size=10, color="1F3864")
+        _ec = ws.cell(row=_rn, column=2, value=_txt)
+        _ec.font = Font(size=10)
+        _ec.alignment = Alignment(wrap_text=True, vertical='top')
+        ws.merge_cells(f'B{_rn}:G{_rn}')
+        ws.row_dimensions[_rn].height = 60
+
+    # Key Takeaway — section header + dynamic interpretation for this dataset
+    _kt_hdr_row = expl_hdr + 4
+    _kt_hdr = ws.cell(row=_kt_hdr_row, column=1, value="Key Takeaway")
+    _kt_hdr.font = Font(bold=True, size=11, color="1F3864")
+    _kt_hdr.fill = PatternFill("solid", fgColor="D9E1F2")
+    _kt_hdr.alignment = Alignment(vertical='center')
+    ws.merge_cells(f'A{_kt_hdr_row}:G{_kt_hdr_row}')
+    ws.row_dimensions[_kt_hdr_row].height = 18
+
+    _p_sig = stats['p_value'] < 0.05
+    _mad_high = stats['mad'] > 0.015
+    _mad = stats['mad']
+    _pval = stats['p_value']
+    if not _p_sig:
+        _key_text = (
+            f"MAD of {_mad:.4f} with a non-significant p-value (p = {_pval:.4f}) indicates no "
+            f"statistically significant deviation from Benford's expected distribution has been "
+            f"detected at this dataset size. Benford's Law signals are advisory only; the composite "
+            f"risk score is driven primarily by other components (Isolation Forest, Local Outlier "
+            f"Factor, z-score, rule-based flags). The absence of a significant result does not "
+            f"confirm data integrity — it means no population-level distributional anomaly has been "
+            f"detected at this sample size."
+        )
+    elif _mad_high:
+        _key_text = (
+            f"MAD of {_mad:.4f} with a statistically significant p-value (p = {_pval:.4f}) "
+            f"indicates the distortion is large enough to be visible at the aggregate level. This "
+            f"suggests anomalies are either widespread across many transactions, or concentrated "
+            f"transactions are extreme enough to visibly drag the overall distribution. A broader "
+            f"review of the dataset is warranted — not just a focus on a few deviant digit groups."
+        )
+    else:
+        _key_text = (
+            f"MAD of {_mad:.4f} with a statistically significant p-value (p = {_pval:.4f}) "
+            f"indicates the overall distribution still looks broadly healthy, but the anomaly is "
+            f"real and subtle. This suggests fewer transactions are involved, or any manipulation "
+            f"is more targeted. The audit response should be more surgical: focus on patterns "
+            f"within the flagged digit groups rather than the dataset as a whole."
+        )
+    _kt_body_row = _kt_hdr_row + 1
+    _kc = ws.cell(row=_kt_body_row, column=1, value=_key_text)
+    _kc.font = Font(size=10, color="1F3864")
+    _kc.alignment = Alignment(wrap_text=True, vertical='top')
+    _kc.fill = PatternFill("solid", fgColor="FFF2CC")
+    ws.merge_cells(f'A{_kt_body_row}:G{_kt_body_row}')
+    ws.row_dimensions[_kt_body_row].height = 80
+
+    _auto_width(ws)
 
 
 # ---------------------------------------------------------------------------
