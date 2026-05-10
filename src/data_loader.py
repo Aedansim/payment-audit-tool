@@ -21,7 +21,12 @@ def load_transactions(filepath):
         )
 
     print(f"  Loading '{path.name}'...")
-    df = pd.read_excel(filepath, dtype=str)
+    # Read headers first so we can build a dtype dict that keeps date columns
+    # as native types — avoids Excel date serial numbers becoming strings.
+    _date_cols = {'Invoice Date', 'Voucher Accounting Date'}
+    _header_cols = pd.read_excel(filepath, nrows=0).columns.tolist()
+    _dtype_dict = {c: str for c in _header_cols if c not in _date_cols}
+    df = pd.read_excel(filepath, dtype=_dtype_dict)
 
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:

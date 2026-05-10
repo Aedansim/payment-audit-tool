@@ -353,11 +353,16 @@ def _similarity_filter(selected, df_vouchers, df_scored, threshold=0.70):
                 retained_vids.append(vid)
 
         for (drop_id, sim_score) in to_drop:
-            # Search ALL unselected vouchers across all vendors, best score first
+            # Search unselected vouchers: non-T08 first (preserving de-prioritisation),
+            # T08 appended as last resort only.
             current_retained_ids = selected_ids - {drop_id}
-            candidates = df_vouchers[
-                ~df_vouchers['Voucher ID'].isin(selected_ids)
-            ].sort_values('voucher_score', ascending=False)
+            _not_sel = ~df_vouchers['Voucher ID'].isin(selected_ids)
+            if 'is_t08_vendor' in df_vouchers.columns:
+                _non_t08 = df_vouchers[_not_sel & ~df_vouchers['is_t08_vendor']].sort_values('voucher_score', ascending=False)
+                _t08 = df_vouchers[_not_sel & df_vouchers['is_t08_vendor']].sort_values('voucher_score', ascending=False)
+                candidates = pd.concat([_non_t08, _t08])
+            else:
+                candidates = df_vouchers[_not_sel].sort_values('voucher_score', ascending=False)
 
             replacement = None
             for _, cand in candidates.iterrows():
@@ -454,9 +459,13 @@ def _vendor_cap(selected, df_vouchers, df_scored, threshold=0.70):
             drop_mask = selected['Voucher ID'] == drop_id
             current_retained_ids = selected_ids - {drop_id}
 
-            candidates = df_vouchers[
-                ~df_vouchers['Voucher ID'].isin(selected_ids)
-            ].sort_values('voucher_score', ascending=False)
+            _not_sel = ~df_vouchers['Voucher ID'].isin(selected_ids)
+            if 'is_t08_vendor' in df_vouchers.columns:
+                _non_t08 = df_vouchers[_not_sel & ~df_vouchers['is_t08_vendor']].sort_values('voucher_score', ascending=False)
+                _t08 = df_vouchers[_not_sel & df_vouchers['is_t08_vendor']].sort_values('voucher_score', ascending=False)
+                candidates = pd.concat([_non_t08, _t08])
+            else:
+                candidates = df_vouchers[_not_sel].sort_values('voucher_score', ascending=False)
 
             vendor_retained_counts: dict = {}
             for vid in current_retained_ids:
