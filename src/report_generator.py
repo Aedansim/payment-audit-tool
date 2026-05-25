@@ -293,7 +293,7 @@ def _page_caveats(doc):
           "The following limitations should be understood before acting on the tool's output:",
           size=10)
     caveats = [
-        "Not a fraud detection tool — a high voucher score indicates a statistically unusual "
+        "Output alone does not constitute proof of fraud or error — a high voucher score indicates a statistically unusual "
         "transaction that warrants attention; it is not evidence of fraud or error. Professional "
         "judgement is required for all selected vouchers. Transactions not flagged should not be "
         "assumed free from irregularities, as sophisticated anomalies that closely mimic normal "
@@ -578,8 +578,9 @@ def _page2(doc, t08_count=0):
         "one letter). Payments to individuals carry higher inherent risk versus registered businesses.",
         "Irregular repeated amount — same amount paid to the same vendor more than twice with no "
         "detected regular monthly/quarterly/annual schedule. May indicate split or duplicate payments.",
-        "Duplicate payment — the same invoice number, vendor, and amount appears across more than "
-        "one distinct payment voucher. Indicates a potential double payment of the same invoice.",
+        "Duplicate payment — the same invoice number, invoice date, vendor, and amount appears "
+        "across more than one distinct payment voucher. Indicates a potential double payment of "
+        "the same invoice.",
         "Reversal or credit note — payment amount is negative. Reversals and credit notes are "
         "legitimate but warrant review, particularly when paired with other risk signals on the "
         "corresponding original payment.",
@@ -986,9 +987,9 @@ ML_FEATURE_TABLE_DATA = [
     ),
     (
         "Duplicate payment",
-        "Whether the same invoice number, vendor, and amount appears across more than one distinct "
-        "payment voucher in the dataset.",
-        "Same (Vendor ID, Invoice Number, Amount) in > 1 Voucher ID",
+        "Whether the same invoice number, invoice date, vendor, and amount appears across more "
+        "than one distinct payment voucher in the dataset.",
+        "Same (Vendor ID, Invoice Number, Invoice Date, Amount) in > 1 Voucher ID",
         "IF, LOF",
         "Potential double payment of the same invoice — a common control failure or deliberate fraud technique.",
     ),

@@ -37,10 +37,11 @@ def _is_weekend_payment(date):
 
 
 def _detect_duplicates(df):
-    """Flag rows where the same invoice (vendor + invoice number + amount) appears in
-    more than one distinct Voucher ID — a potential double payment.
+    """Flag rows where the same invoice (vendor + invoice number + invoice date + amount)
+    appears in more than one distinct Voucher ID — a potential double payment.
     Returns (is_duplicate Series, duplicate_matched_voucher Series) where
-    duplicate_matched_voucher holds the counterpart Voucher ID(s), comma-separated."""
+    duplicate_matched_voucher holds the counterpart Voucher ID(s), comma-separated.
+    Rows with a missing Invoice Date cannot match on the date key and are not flagged."""
     is_dup = pd.Series(0, index=df.index)
     matched_vch = pd.Series('', index=df.index, dtype=object)
     has_invoice = df['Invoice Number'].notna() & (
@@ -49,7 +50,7 @@ def _detect_duplicates(df):
     if not has_invoice.any():
         return is_dup, matched_vch
     relevant = df[has_invoice]
-    key = ['Vendor ID', 'Invoice Number', AMOUNT_COL]
+    key = ['Vendor ID', 'Invoice Number', 'Invoice Date', AMOUNT_COL]
     cross_voucher = relevant.groupby(key)['Voucher ID'].transform('nunique') > 1
     flagged_idx = relevant[cross_voucher].index
     is_dup.loc[flagged_idx] = 1

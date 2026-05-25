@@ -100,7 +100,7 @@ def _build_reason(row):
 
     if row.get('is_duplicate', 0):
         matched = str(row.get('duplicate_matched_voucher', '') or '').strip() or '(unknown)'
-        parts.append(f"Potential duplicate payment — same vendor, invoice number, and amount found in other voucher(s) (see Voucher ID(s): {matched})")
+        parts.append(f"Potential duplicate payment — same vendor, invoice number, invoice date, and amount found in other voucher(s) (see Voucher ID(s): {matched})")
 
     if row.get('is_reversal', 0):
         parts.append("Reversal or credit note (negative amount)")

@@ -824,7 +824,7 @@ def build_composite(ws):
         ("near_threshold",              "Near approval threshold",  "amount within 5% below 1K/5K/10K/50K/100K",                                    "0 or 1"),
         ("is_individual_payee",         "Individual payee",         "Vendor ID matches NRIC/FIN regex",                                              "0 or 1"),
         ("same_amount_vendor_irregular","Irregular repeat amount",  "Same amount to same vendor >2×, no regular cycle",                             "0 or 1"),
-        ("is_duplicate",                "Duplicate payment",        "Same (Vendor ID, Invoice #, Amount) in >1 Voucher ID",                         "0 or 1"),
+        ("is_duplicate",                "Duplicate payment",        "Same (Vendor ID, Invoice #, Invoice Date, Amount) in >1 Voucher ID",           "0 or 1"),
         ("is_reversal",                 "Reversal / credit note",   "Amount < 0",                                                                   "0 or 1"),
         ("is_split_purchase_risk",      "Split purchase risk",      "Same vendor, same Invoice Date, ≥2 invoices with consecutive numeric suffixes; group total $5,700–<$6,000 or $85,500–<$90,000","0 or 1"),
         ("is_transposed_amount",        "Transposed amount",        "Same vendor + description; whole-dollar portions differ by exactly one digit-position swap, cents ignored (positive only)","0 or 1"),
