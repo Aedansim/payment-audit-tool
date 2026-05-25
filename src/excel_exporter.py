@@ -56,6 +56,31 @@ def _safe_value(value):
     return value
 
 
+def _amber_note(ws, text, n_cols, row=1):
+    """Full-width amber background note spanning n_cols, used atop review sheets."""
+    cell = ws.cell(row=row, column=1, value=text)
+    cell.fill = PatternFill("solid", fgColor="FFC000")
+    cell.font = Font(size=10)
+    cell.alignment = Alignment(wrap_text=True, vertical='top')
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=n_cols)
+
+
+def _write_summary_block(ws, start_row, items, label_span=3):
+    """Write (label, value) rows below a data table: navy-header labels, white-background values."""
+    for i, (label, value) in enumerate(items):
+        r = start_row + i
+        lc = ws.cell(row=r, column=1, value=label)
+        lc.fill = HEADER_FILL
+        lc.font = HEADER_FONT
+        lc.alignment = Alignment(vertical='center', wrap_text=True)
+        if label_span > 1:
+            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=label_span)
+        vc = ws.cell(row=r, column=label_span + 1, value=value)
+        vc.font = Font(size=10)
+        vc.fill = PatternFill("solid", fgColor="FFFFFF")
+    return start_row + len(items)
+
+
 # ---------------------------------------------------------------------------
 # Sheet 1 — Selected Vouchers
 # ---------------------------------------------------------------------------
@@ -337,6 +362,116 @@ def _sheet_all_lines(wb, df_scored):
 
 
 # ---------------------------------------------------------------------------
+# Sheet — Reversals Review
+# ---------------------------------------------------------------------------
+
+_REVERSALS_NOTE = (
+    "Reversals Review — All reversal and credit note transactions (negative amounts). "
+    "Reversals are a normal accounting mechanism but can also be used to manipulate or disguise "
+    "payments. The matched original payment column shows the likely counterpart positive payment "
+    "where one could be identified by matching vendor and absolute amount. Auditors should "
+    "review whether each reversal is supported and appropriate."
+)
+
+_REVERSALS_HEADERS = [
+    'Vendor ID', 'Vendor Name', 'Voucher ID', 'Invoice Number',
+    'Invoice Date', 'Voucher Accounting Date', 'Voucher Line Description',
+    'Amount (SGD)', 'Matched Original Payment (Voucher ID)',
+]
+
+
+def _sheet_reversals_review(wb, df_scored):
+    ws = wb.create_sheet("Reversals Review")
+    headers = _REVERSALS_HEADERS
+    n_cols = len(headers)
+
+    if 'is_reversal' in df_scored.columns:
+        rev = df_scored[df_scored['is_reversal'] == 1].copy()
+    else:
+        rev = df_scored.iloc[0:0].copy()
+
+    if rev.empty:
+        _write_header_row(ws, headers, row=1)
+        ws.cell(row=2, column=1,
+                value="No reversal or credit note transactions identified in this dataset.")
+        ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=n_cols)
+        _auto_width(ws)
+        return
+
+    # Lookup of positive payments: (Vendor ID, rounded amount) -> distinct Voucher IDs
+    pos = df_scored[df_scored[AMOUNT_COL] > 0]
+    pos_lookup = {}
+    for vid_, amt_, vch_ in zip(pos['Vendor ID'], pos[AMOUNT_COL], pos['Voucher ID']):
+        if pd.isna(amt_):
+            continue
+        pos_lookup.setdefault((vid_, round(float(amt_), 2)), set()).add(str(vch_))
+
+    def _matched(vid_, amt_):
+        if pd.isna(amt_):
+            return "(no matching original payment identified)"
+        vids = pos_lookup.get((vid_, round(abs(float(amt_)), 2)))
+        if not vids:
+            return "(no matching original payment identified)"
+        return ", ".join(sorted(vids))
+
+    rev = rev.sort_values(['Vendor ID', 'Voucher Accounting Date']).reset_index(drop=True)
+
+    _amber_note(ws, _REVERSALS_NOTE, n_cols, row=1)
+    ws.row_dimensions[1].height = 60
+    _write_header_row(ws, headers, row=2)
+
+    date_cols = {'Invoice Date', 'Voucher Accounting Date'}
+    fills = [ALT_FILL, ALT2_FILL]
+    fill_idx = 0
+    prev_vid = None
+    n_no_match = 0
+
+    for i, (_, r) in enumerate(rev.iterrows()):
+        cur_vid = r.get('Vendor ID')
+        if cur_vid != prev_vid:
+            fill_idx = 1 - fill_idx
+            prev_vid = cur_vid
+        row_fill = fills[fill_idx]
+        matched = _matched(cur_vid, r.get(AMOUNT_COL))
+        if matched.startswith("(no matching"):
+            n_no_match += 1
+
+        values = [
+            r.get('Vendor ID', ''), r.get('Vendor Name', ''), r.get('Voucher ID', ''),
+            r.get('Invoice Number', ''), r.get('Invoice Date', None),
+            r.get('Voucher Accounting Date', None), r.get('Voucher Line Description', ''),
+            r.get(AMOUNT_COL, None), matched,
+        ]
+        excel_row = i + 3
+        for c_idx, (hdr, value) in enumerate(zip(headers, values), start=1):
+            cell = ws.cell(row=excel_row, column=c_idx)
+            cell.value = _safe_value(value)
+            cell.border = THIN_BORDER
+            cell.alignment = Alignment(vertical='top', wrap_text=False)
+            cell.fill = row_fill
+            if hdr in date_cols:
+                cell.number_format = 'DD/MM/YYYY'
+            elif hdr == 'Amount (SGD)':
+                cell.number_format = '#,##0.00'
+
+    ws.freeze_panes = "A3"
+    _auto_width(ws)
+    ws.column_dimensions[get_column_letter(headers.index('Voucher Line Description') + 1)].width = 40
+    ws.column_dimensions[get_column_letter(n_cols)].width = 30
+
+    n_rev = len(rev)
+    n_vendors = rev['Vendor ID'].nunique()
+    total_abs = float(rev[AMOUNT_COL].abs().sum())
+    summary_start = n_rev + 4  # note(1) + header(2) + n_rev data rows + 1 blank
+    _write_summary_block(ws, summary_start, [
+        ("Total reversal transactions", f"{n_rev:,}"),
+        ("Distinct vendors with reversals", f"{n_vendors:,}"),
+        ("Total absolute value (SGD)", f"{total_abs:,.2f}"),
+        ("Reversals with no matching original payment", f"{n_no_match:,}"),
+    ])
+
+
+# ---------------------------------------------------------------------------
 # Sheet 5 — Benford's Law (unchanged)
 # ---------------------------------------------------------------------------
 
@@ -508,6 +643,10 @@ def _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats)
     n_vch_med  = int((df_vouchers.get('voucher_risk_tier', pd.Series()) == 'MEDIUM').sum())
     n_vch_low  = int((df_vouchers.get('voucher_risk_tier', pd.Series()) == 'LOW').sum())
 
+    rev_mask    = df_scored.get('is_reversal', pd.Series(0, index=df_scored.index)) == 1
+    n_reversals = int(rev_mask.sum())
+    abs_rev_tot = float(df_scored.loc[rev_mask, AMOUNT_COL].abs().sum()) if n_reversals else 0.0
+
     rows = [
         ("DATASET", None),
         ("Total transaction line items", f"{n_lines:,}"),
@@ -528,6 +667,9 @@ def _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats)
         ("Total line items in selected vouchers",
          f"{int(selected_vouchers['voucher_line_count'].sum()):,}"
          if 'voucher_line_count' in selected_vouchers.columns else "N/A"),
+        ("", None),
+        ("KEY FINDINGS", None),
+        ("Reversal / Credit Note Transactions:", f"{n_reversals:,} (SGD {abs_rev_tot:,.2f})"),
     ]
 
     for r_offset, (label, value) in enumerate(rows, start=3):
@@ -625,6 +767,7 @@ def export_excel(df_scored, df_vouchers, selected_vouchers,
     _sheet_voucher_line_detail(wb, df_scored, selected_vouchers)
     _sheet_all_vouchers(wb, df_vouchers)
     _sheet_all_lines(wb, df_scored)
+    _sheet_reversals_review(wb, df_scored)
     _sheet_benford(wb, benford_summary, benford_stats)
     _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats)
 
