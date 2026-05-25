@@ -21,11 +21,13 @@ _CYCLES = [
 # Helper functions
 # ---------------------------------------------------------------------------
 
-def _group_zscore(df, value_col, group_col):
+def _group_zscore(values, group):
+    """Within-group z-score of `values` (a Series) grouped by `group` (a Series).
+    Callers pass df[AMOUNT_COL].abs() so reversals are assessed by magnitude, not sign."""
     def _z(x):
         s = x.std(ddof=1)
         return (x - x.mean()) / s if s > 0 else pd.Series(0.0, index=x.index)
-    return df.groupby(group_col)[value_col].transform(_z).fillna(0.0)
+    return values.groupby(group).transform(_z).fillna(0.0)
 
 
 def _is_weekend_payment(date):
@@ -252,8 +254,8 @@ def engineer_features(df):
     """
     print("  Computing amount z-scores...")
     df['amount_log'] = np.log1p(df[AMOUNT_COL].abs())
-    df['amount_zscore_vendor'] = _group_zscore(df, AMOUNT_COL, 'Vendor ID')
-    df['amount_zscore_costcentre'] = _group_zscore(df, AMOUNT_COL, 'Cost Centre')
+    df['amount_zscore_vendor'] = _group_zscore(df[AMOUNT_COL].abs(), df['Vendor ID'])
+    df['amount_zscore_costcentre'] = _group_zscore(df[AMOUNT_COL].abs(), df['Cost Centre'])
 
     print("  Computing rule-based flags...")
     df['is_reversal'] = (df[AMOUNT_COL] < 0).astype(int)
