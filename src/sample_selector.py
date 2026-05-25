@@ -112,6 +112,15 @@ def _build_reason(row):
         matched = str(row.get('transposed_matched_invoice', '') or '(no invoice number)').strip() or '(no invoice number)'
         parts.append(f"Possible transposed amount — same vendor and description, digit-transposed amount exists (matched against invoice: {matched}) (review for keying error)")
 
+    if row.get('is_fy_split_purchase', 0):
+        total = row.get('fy_split_group_total', 0)
+        count = row.get('fy_split_group_count', 0)
+        fy    = row.get('fy_split_fy_label', '')
+        parts.append(
+            f"Potential FY split purchase ({fy}) — {count} similar payments to same "
+            f"vendor totalling SGD {total:,.2f}, exceeding SGD 6,000 threshold"
+        )
+
     pt = row.get('processing_days_zscore', 0)
     if pt > 2.5:
         days = row.get('processing_days', None)

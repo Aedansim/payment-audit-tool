@@ -472,6 +472,103 @@ def _sheet_reversals_review(wb, df_scored):
 
 
 # ---------------------------------------------------------------------------
+# Sheet — FY Split Purchase
+# ---------------------------------------------------------------------------
+
+_FY_SPLIT_NOTE = (
+    "Potential FY Split Purchase — Payments to the same vendor with similar descriptions within "
+    "the same fiscal year (1 Apr - 31 Mar), where the combined total exceeds SGD 6,000. This may "
+    "indicate procurement splitting to avoid the small value purchase approval threshold. Fiscal "
+    "year is determined by Voucher Accounting Date. Where a payment's description is a unique "
+    "reference code rather than descriptive text, it can only be grouped with other payments "
+    "carrying the identical reference; vendors whose payments each use a different reference code "
+    "will not be grouped and should be reviewed separately. This feature is a review aid only and "
+    "does not influence the risk score."
+)
+
+_FY_SPLIT_SOURCE_COLS = [
+    'Vendor ID', 'Vendor Name', 'fy_split_fy_label', 'Voucher ID', 'Invoice Number',
+    'Invoice Date', 'Voucher Accounting Date', 'Voucher Line Description',
+    AMOUNT_COL, 'fy_split_group_count', 'fy_split_group_total', 'Account Code', 'Cost Centre',
+]
+
+_FY_SPLIT_HEADERS = [
+    'Vendor ID', 'Vendor Name', 'Fiscal Year', 'Voucher ID', 'Invoice Number',
+    'Invoice Date', 'Voucher Accounting Date', 'Voucher Line Description',
+    'Amount (SGD)', 'No. of Similar Payments in FY', 'Group Total (SGD)',
+    'Account Code', 'Cost Centre',
+]
+
+
+def _sheet_fy_split_purchase(wb, df_scored):
+    ws = wb.create_sheet("FY Split Purchase")
+    headers = _FY_SPLIT_HEADERS
+    n_cols = len(headers)
+
+    if 'is_fy_split_purchase' in df_scored.columns:
+        fy = df_scored[df_scored['is_fy_split_purchase'] == 1].copy()
+    else:
+        fy = df_scored.iloc[0:0].copy()
+
+    if fy.empty:
+        _write_header_row(ws, headers, row=1)
+        ws.cell(row=2, column=1,
+                value="No potential FY split purchases identified in this dataset.")
+        ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=n_cols)
+        _auto_width(ws)
+        return
+
+    fy = fy.sort_values(
+        ['Vendor ID', 'fy_split_fy_label', 'Voucher Accounting Date']
+    ).reset_index(drop=True)
+
+    _amber_note(ws, _FY_SPLIT_NOTE, n_cols, row=1)
+    ws.row_dimensions[1].height = 75
+    _write_header_row(ws, headers, row=2)
+
+    date_cols = {'Invoice Date', 'Voucher Accounting Date'}
+    amt_cols  = {'Amount (SGD)', 'Group Total (SGD)'}
+    fills = [ALT_FILL, ALT2_FILL]
+    fill_idx = 0
+    prev_vid = None
+
+    for i, (_, r) in enumerate(fy.iterrows()):
+        cur_vid = r.get('Vendor ID')
+        if cur_vid != prev_vid:
+            fill_idx = 1 - fill_idx
+            prev_vid = cur_vid
+        row_fill = fills[fill_idx]
+        excel_row = i + 3
+        for c_idx, (src, hdr) in enumerate(zip(_FY_SPLIT_SOURCE_COLS, headers), start=1):
+            cell = ws.cell(row=excel_row, column=c_idx)
+            cell.value = _safe_value(r.get(src, None))
+            cell.border = THIN_BORDER
+            cell.alignment = Alignment(vertical='top', wrap_text=False)
+            cell.fill = row_fill
+            if hdr in date_cols:
+                cell.number_format = 'DD/MM/YYYY'
+            elif hdr in amt_cols:
+                cell.number_format = '#,##0.00'
+
+    ws.freeze_panes = "A3"
+    _auto_width(ws)
+    ws.column_dimensions[get_column_letter(headers.index('Voucher Line Description') + 1)].width = 40
+
+    n_flagged = len(fy)
+    n_vendors = fy['Vendor ID'].nunique()
+    n_groups  = fy[['Vendor ID', 'fy_split_fy_label', 'fy_split_group_total']] \
+        .drop_duplicates().shape[0]
+    total_sgd = float(fy[AMOUNT_COL].sum())
+    summary_start = n_flagged + 4  # note(1) + header(2) + data rows + 1 blank
+    _write_summary_block(ws, summary_start, [
+        ("Total flagged transactions", f"{n_flagged:,}"),
+        ("Distinct vendors affected", f"{n_vendors:,}"),
+        ("Distinct vendor-FY-description groups", f"{n_groups:,}"),
+        ("Total value across flagged transactions (SGD)", f"{total_sgd:,.2f}"),
+    ])
+
+
+# ---------------------------------------------------------------------------
 # Sheet 5 — Benford's Law (unchanged)
 # ---------------------------------------------------------------------------
 
@@ -647,6 +744,16 @@ def _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats)
     n_reversals = int(rev_mask.sum())
     abs_rev_tot = float(df_scored.loc[rev_mask, AMOUNT_COL].abs().sum()) if n_reversals else 0.0
 
+    fy_mask      = df_scored.get('is_fy_split_purchase', pd.Series(0, index=df_scored.index)) == 1
+    n_fy_flagged = int(fy_mask.sum())
+    if n_fy_flagged and {'fy_split_fy_label', 'fy_split_group_total'} <= set(df_scored.columns):
+        n_fy_groups = df_scored.loc[
+            fy_mask, ['Vendor ID', 'fy_split_fy_label', 'fy_split_group_total']
+        ].drop_duplicates().shape[0]
+        fy_total = float(df_scored.loc[fy_mask, AMOUNT_COL].sum())
+    else:
+        n_fy_groups, fy_total = 0, 0.0
+
     rows = [
         ("DATASET", None),
         ("Total transaction line items", f"{n_lines:,}"),
@@ -670,6 +777,7 @@ def _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats)
         ("", None),
         ("KEY FINDINGS", None),
         ("Reversal / Credit Note Transactions:", f"{n_reversals:,} (SGD {abs_rev_tot:,.2f})"),
+        ("Potential FY Split Purchases:", f"{n_fy_groups:,} group(s) (SGD {fy_total:,.2f})"),
     ]
 
     for r_offset, (label, value) in enumerate(rows, start=3):
@@ -768,6 +876,7 @@ def export_excel(df_scored, df_vouchers, selected_vouchers,
     _sheet_all_vouchers(wb, df_vouchers)
     _sheet_all_lines(wb, df_scored)
     _sheet_reversals_review(wb, df_scored)
+    _sheet_fy_split_purchase(wb, df_scored)
     _sheet_benford(wb, benford_summary, benford_stats)
     _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats)
 

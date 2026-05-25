@@ -175,6 +175,106 @@ def _detect_split_purchase(df):
     return result
 
 
+# ---------------------------------------------------------------------------
+# FY split purchase detection
+# ---------------------------------------------------------------------------
+# A fiscal year runs 1 April YYYY – 31 March YYYY+1. A potential split purchase is
+# 2+ similar payments to the same vendor within one fiscal year whose positive total
+# exceeds the small-value purchase approval threshold. Token lists are module-level so
+# they can be extended without changing the logic.
+
+_FY_SPLIT_THRESHOLD = 6_000
+
+_FY_MONTH_TOKENS = frozenset({
+    'january', 'jan', 'february', 'feb', 'march', 'mar', 'april', 'apr', 'may',
+    'june', 'jun', 'july', 'jul', 'august', 'aug', 'september', 'sep', 'sept',
+    'october', 'oct', 'november', 'nov', 'december', 'dec',
+})
+
+_FY_FILLER_TOKENS = frozenset({
+    'invoice', 'inv', 'no', 'ref', 'reference', 'qty', 'quantity', 'unit', 'units',
+    'period', 'dated', 'date', 'for', 'the', 'and', 'of', 'to', 'payment', 'pmt', 'voucher',
+})
+
+
+def _fy_label(date):
+    """FY label from a Voucher Accounting Date: month >= 4 -> FY{year}, else FY{year-1}."""
+    if pd.isna(date):
+        return np.nan
+    return f"FY{date.year if date.month >= 4 else date.year - 1}"
+
+
+def _normalise_fy_desc(desc):
+    """Reduce a Voucher Line Description to a meaningful-words key for FY-split grouping.
+    Lowercase+strip, drop digits, punctuation->space, drop whole-token month names and
+    generic filler words, collapse spaces.
+
+    Fallback (g): when the cleaned key carries no real descriptive content — i.e. it is blank
+    (e.g. a purely numeric reference like '12/2024/356/22' -> '') OR only short residual
+    fragments survive (e.g. an alphanumeric reference 'PO-4471-22' -> 'po') — fall back to the
+    original description cleaned only by strip+lowercase+whitespace-collapse, preserving the
+    raw reference (digits and punctuation kept) as the grouping key. This keeps distinct
+    reference codes in separate groups instead of merging them (e.g. 'PO-4471-22' vs
+    'PO-9999-88'). A token of >= 3 letters is treated as real descriptive content.
+
+    Limitation: a description that is a unique reference per payment forms its own single-item
+    group and is never flagged (a group needs 2+ payments) — surfaced for separate manual review."""
+    if pd.isna(desc):
+        return np.nan
+    raw = str(desc)
+    s = re.sub(r'[0-9]', '', raw.strip().lower())     # (a)(b)
+    s = re.sub(r'[^a-z\s]', ' ', s)                    # (c) punctuation -> space
+    tokens = [t for t in s.split()                     # (d)(e) whole-token removal
+              if t not in _FY_MONTH_TOKENS and t not in _FY_FILLER_TOKENS]
+    key = ' '.join(tokens).strip()                     # (f)
+    if key and any(len(t) >= 3 for t in tokens):
+        return key
+    fallback = re.sub(r'\s+', ' ', raw.strip().lower())  # (g) keep digits/punctuation
+    return fallback if fallback else np.nan
+
+
+def _detect_fy_split_purchase(df):
+    """Flag positive-amount payments belonging to a (Vendor ID, fiscal year, normalised
+    description) group of 2+ payments whose positive total exceeds SGD 6,000.
+    Returns (is_fy_split_purchase, fy_split_group_total, fy_split_group_count,
+    fy_split_fy_label) Series aligned to df.index. Deterministic exact-match grouping
+    on the cleaned key — not the pairwise similarity used during sample selection."""
+    is_split    = pd.Series(0, index=df.index)
+    grp_total   = pd.Series(0.0, index=df.index)
+    grp_count   = pd.Series(0, index=df.index)
+    fy_label    = pd.Series('', index=df.index, dtype=object)
+
+    work = pd.DataFrame({
+        '_vid':       df['Vendor ID'],
+        '_fy':        df['Voucher Accounting Date'].apply(_fy_label),
+        '_desc_norm': df['Voucher Line Description'].apply(_normalise_fy_desc),
+        '_amount':    df[AMOUNT_COL],
+    }, index=df.index)
+
+    eligible = work[
+        work['_fy'].notna() & work['_desc_norm'].notna() & (work['_amount'] > 0)
+    ]
+    n_flagged = n_groups = 0
+    if not eligible.empty:
+        for (_vid, fy, _desc), grp in eligible.groupby(['_vid', '_fy', '_desc_norm'], sort=False):
+            if len(grp) < 2:
+                continue
+            total = grp['_amount'].sum()
+            if total <= _FY_SPLIT_THRESHOLD:
+                continue
+            idx = grp.index
+            is_split.loc[idx]  = 1
+            grp_total.loc[idx] = round(float(total), 2)
+            grp_count.loc[idx] = len(grp)
+            fy_label.loc[idx]  = fy
+            n_groups  += 1
+            n_flagged += len(grp)
+
+    print(f"  Found {n_flagged:,} transactions across {n_groups:,} vendor-FY-description "
+          f"groups with potential FY split purchase (group total > SGD 6,000).")
+    return is_split, grp_total, grp_count, fy_label
+
+
 def _is_digit_transposition(a, b):
     """Return True if two positive amounts differ by exactly one digit-position swap
     in their whole-dollar (integer) portion. Cents are discarded so the swap cannot
@@ -309,6 +409,10 @@ def engineer_features(df):
     df['is_transposed_amount'], df['transposed_matched_invoice'] = _detect_transposed_amounts(df)
     n_trans = int(df['is_transposed_amount'].sum())
     print(f"  Found {n_trans:,} transactions with possible transposed amounts.")
+
+    print("  Detecting potential FY split purchases (same vendor, similar description, same fiscal year)...")
+    (df['is_fy_split_purchase'], df['fy_split_group_total'],
+     df['fy_split_group_count'], df['fy_split_fy_label']) = _detect_fy_split_purchase(df)
 
     ml_features = [
         'amount_log',
