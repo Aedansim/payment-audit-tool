@@ -728,6 +728,45 @@ def _page2(doc, t08_count=0):
           size=10)
     doc.add_paragraph()
 
+    # ---- Potential FY split purchases (review aid, not scored) ----
+    _heading(doc, "Potential Fiscal Year Split Purchases", level=2)
+    _body(doc,
+          "The tool identifies potential split purchases within a fiscal year. A fiscal year runs "
+          "from 1 April to 31 March of the following year. This check looks for multiple payments of a "
+          "similar nature made to the same vendor within the same fiscal year where the combined total "
+          "exceeds SGD 6,000 — the approval threshold for small value purchases. Such a pattern may "
+          "indicate that a single procurement need has been deliberately divided into smaller payments, "
+          "each kept below the threshold, to avoid the approval process that would apply to the "
+          "combined amount.",
+          size=10)
+    _body(doc,
+          "Payments are grouped by vendor, fiscal year, and a normalised payment description (which "
+          "removes numbers and punctuation so that payments of the same general nature are grouped "
+          "together regardless of invoice-specific detail). Where the positive-amount total of such a "
+          "group exceeds SGD 6,000, every positive-amount transaction in the group is identified as a "
+          "potential fiscal year split purchase. The fiscal year is determined using the Voucher "
+          "Accounting Date. Where a payment's description consists of a structured reference code "
+          "rather than descriptive text (for example a document or contract reference), the full "
+          "reference is retained as the grouping key so the payment is not excluded from the check; "
+          "in such cases payments are grouped only where they share the identical reference. A "
+          "consequence is that vendors whose payments each carry a distinct reference code will not be "
+          "grouped by this check and should be considered for separate manual review.",
+          size=10)
+    _body(doc,
+          "This feature does NOT influence the composite risk score or the machine learning models. "
+          "It is deliberately excluded from scoring because legitimate recurring payments — such as "
+          "monthly subscriptions, retainers, or regular supplies of the same nature — would otherwise "
+          "generate a high rate of false positives. Including such a signal in the scoring models would "
+          "risk distorting the risk ranking. Instead, this feature operates purely as a standalone "
+          "review aid: all identified cases are listed in the dedicated 'FY Split Purchase' tab of the "
+          "accompanying Excel workbook, and a note is added to the reason codes of affected "
+          "transactions. Auditors should review the listed groups directly and apply professional "
+          "judgement to distinguish genuine procurement splitting from legitimate recurring payments, "
+          "taking into account the vendor relationship, the existence of contracts or purchase orders, "
+          "and the nature of the goods or services.",
+          size=10)
+    doc.add_paragraph()
+
     # ---- Risk tiers and selection ----
     _heading(doc, "Risk Tier Assignment and Sample Selection", level=2)
     _body(doc,
