@@ -174,10 +174,12 @@ def _detect_split_purchase(df):
 
 
 def _is_digit_transposition(a, b):
-    """Return True if two positive amounts differ by exactly one digit-position swap.
-    Operates on cent-integer strings so decimal places are included in the comparison."""
-    a_str = str(int(round(a * 100)))
-    b_str = str(int(round(b * 100)))
+    """Return True if two positive amounts differ by exactly one digit-position swap
+    in their whole-dollar (integer) portion. Cents are discarded so the swap cannot
+    cross the decimal point — e.g. $348.23 vs $328.43 (a trivial $19.80 difference) is
+    NOT a transposition, whereas $4,800 vs $8,400 is."""
+    a_str = str(int(abs(a)))   # whole dollars only, cents dropped
+    b_str = str(int(abs(b)))
     if len(a_str) != len(b_str):
         return False
     diffs = [(ca, cb) for ca, cb in zip(a_str, b_str) if ca != cb]
@@ -186,7 +188,7 @@ def _is_digit_transposition(a, b):
 
 def _detect_transposed_amounts(df):
     """Flag transactions where same vendor and description have digit-transposed amounts —
-    exactly two digit positions swapped in the cent-integer representation, suggesting a keying error.
+    exactly two digit positions swapped in the whole-dollar portion, suggesting a keying error.
     Returns (is_transposed Series, transposed_matched_invoice Series)."""
     result = pd.Series(0, index=df.index)
     matched_inv = pd.Series('', index=df.index, dtype=object)
@@ -194,6 +196,10 @@ def _detect_transposed_amounts(df):
     if not pos_mask.any():
         return result, matched_inv
     pos = df[pos_mask].copy()
+    # Description key is a strict near-exact match (lowercase + strip only — no digit,
+    # punctuation, month-name, or filler-word removal) BY DESIGN. Amounts are only compared
+    # for transposition within a (Vendor ID, description) group, so a strict key avoids false
+    # transposition matches between unrelated payments that merely share a similar description.
     pos['_desc_key'] = pos['Voucher Line Description'].astype(str).str.strip().str.lower()
     inv_series = df['Invoice Number'].astype(str).str.strip()
     for (vid, desc), grp in pos.groupby(['Vendor ID', '_desc_key'], sort=False):

@@ -589,9 +589,9 @@ def _page2(doc, t08_count=0):
         "$85,500–<$90,000). May indicate a single purchase deliberately split across multiple "
         "invoices to avoid triggering a higher-level approval threshold.",
         "Transposed amount — the payment amount differs from another transaction to the same vendor "
-        "with the same description by exactly one pair of transposed digits in the full cent-level "
-        "amount (e.g. SGD 4,800 vs SGD 8,400). May indicate a keying error resulting in significant "
-        "over- or under-payment if left undetected.",
+        "with the same description by exactly one pair of transposed digits in the whole-dollar "
+        "portion of the amount, with cents ignored (e.g. SGD 4,800 vs SGD 8,400). May indicate a "
+        "keying error resulting in significant over- or under-payment if left undetected.",
     ]
     for rule in rules:
         _bullet(doc, rule, size=10)
@@ -974,9 +974,9 @@ ML_FEATURE_TABLE_DATA = [
     (
         "Transposed amount",
         "Whether the same vendor and description group contains another transaction whose amount "
-        "differs by exactly one pair of transposed digits in the full cent-level amount "
-        "(e.g. SGD 4,800 vs SGD 8,400, or SGD 123.45 vs SGD 123.54).",
-        "Exactly two digit positions swapped in the cent-integer string (str(int(round(amount × 100)))) "
+        "differs by exactly one pair of transposed digits in the whole-dollar portion "
+        "(e.g. SGD 4,800 vs SGD 8,400). Cents are ignored, so cross-decimal swaps are not flagged.",
+        "Exactly two digit positions swapped in the whole-dollar integer string (str(int(abs(amount)))) "
         "within same vendor + description group (positive amounts only)",
         "IF, LOF",
         "Digit transpositions are a common keying error that can result in significant over- or "
