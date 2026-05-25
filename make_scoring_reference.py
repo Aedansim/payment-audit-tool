@@ -793,11 +793,12 @@ def build_composite(ws):
     r = blank(ws, r, 4)
     r = body(ws, r,
              "Computed in feature_engineering.py using group statistics per Vendor ID "
-             "and per Cost Centre:")
+             "and per Cost Centre, on the ABSOLUTE amount so reversals (negative amounts) "
+             "are assessed by magnitude rather than flagged purely for being negative:")
     r = formula(ws, r,
-                "amount_zscore_vendor     =  (amount − mean_vendor) / std_vendor")
+                "amount_zscore_vendor     =  (|amount| − mean_vendor) / std_vendor")
     r = formula(ws, r,
-                "amount_zscore_costcentre =  (amount − mean_cc)     / std_cc")
+                "amount_zscore_costcentre =  (|amount| − mean_cc)     / std_cc")
     r = formula(ws, r,
                 "z_max(tx)  =  max( |amount_zscore_vendor|,  |amount_zscore_costcentre| )")
     r = formula(ws, r,
@@ -826,7 +827,7 @@ def build_composite(ws):
         ("is_duplicate",                "Duplicate payment",        "Same (Vendor ID, Invoice #, Amount) in >1 Voucher ID",                         "0 or 1"),
         ("is_reversal",                 "Reversal / credit note",   "Amount < 0",                                                                   "0 or 1"),
         ("is_split_purchase_risk",      "Split purchase risk",      "Same vendor, same Invoice Date, ≥2 invoices with consecutive numeric suffixes; group total $5,700–<$6,000 or $85,500–<$90,000","0 or 1"),
-        ("is_transposed_amount",        "Transposed amount",        "Same vendor + description, digit multiset identical but amount differs (positive only)","0 or 1"),
+        ("is_transposed_amount",        "Transposed amount",        "Same vendor + description; whole-dollar portions differ by exactly one digit-position swap, cents ignored (positive only)","0 or 1"),
     ]
     for i, (col, rule, cond, val) in enumerate(flag_rules):
         bg = ALT if i % 2 == 0 else WHITE

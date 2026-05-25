@@ -2,7 +2,9 @@
 
 Read this when editing `excel_exporter.py` or `report_generator.py`.
 
-## Excel workbook — 6-tab structure (`excel_exporter.py`)
+## Excel workbook — 8-tab structure (`excel_exporter.py`)
+
+Sheet order in `export_excel`: Selected Vouchers → Voucher Line Detail → All Vouchers Scored → All Lines Scored → **Reversals Review** → **FY Split Purchase** → Benford's Law → Summary.
 
 | Tab | Content |
 |---|---|
@@ -10,8 +12,12 @@ Read this when editing `excel_exporter.py` or `report_generator.py`.
 | 2 — **Voucher Line Detail** | All lines for selected vouchers, alternating background shading per voucher group. Includes all 9 rule flags + `if_anomaly`, `lof_anomaly`, `zscore_anomaly` (binary 0/1) via `_LINE_FLAG_COLS`. |
 | 3 — **All Vouchers Scored** | Full voucher-level rollup sorted by `voucher_score` desc, colour-scale conditional formatting. Includes `Total Amount (SGD)`. |
 | 4 — **All Lines Scored** | Full row-level scored dataset, colour-scale on `risk_score`. Flag columns: all 9 rule flags + `if_anomaly`, `lof_anomaly`, `zscore_anomaly` via inline `flag_cols` list. |
-| 5 — **Benford's Law** | Rows 4–8: summary stats. Row 10: digit frequency table header. Rows 11–19: digit data, deviant digits highlighted orange. Below: recurring payment exclusions note → "Understanding These Metrics" section (MAD, Chi-Square, Conformity Verdict at font 10) → "Key Takeaway" section (soft blue header, warm yellow body, dynamic text based on `stats['mad']` and `stats['p_value']`). |
-| 6 — **Summary** | Dataset counts, tier distribution, audit sample breakdown. Amber-background note on T08 de-prioritisation. Two dark-navy-header blocks: "Scope and Limitations" and "Sample Selection Basis". |
+| 5 — **Reversals Review** | `df_scored` rows where `is_reversal == 1`, sorted Vendor ID → Voucher Accounting Date. Amber note on top, per-vendor alternating shading, dates DD/MM/YYYY, amount `#,##0.00`. "Matched Original Payment (Voucher ID)" derived by matching same Vendor ID + abs amount + positive amount. Summary block (count, distinct vendors, total abs SGD, no-match count). Empty-safe message row. Built by `_sheet_reversals_review`. |
+| 6 — **FY Split Purchase** | `df_scored` rows where `is_fy_split_purchase == 1`, sorted Vendor ID → Fiscal Year → Voucher Accounting Date. Amber note (incl. reference-code limitation + "review aid only, does not influence the risk score"). Columns incl. Fiscal Year, "No. of Similar Payments in FY", "Group Total (SGD)". Summary block (flagged count, distinct vendors, distinct vendor-FY-desc groups, total SGD). Empty-safe message row. Built by `_sheet_fy_split_purchase`. |
+| 7 — **Benford's Law** | Rows 4–8: summary stats. Row 10: digit frequency table header. Rows 11–19: digit data, deviant digits highlighted orange. Below: recurring payment exclusions note → "Understanding These Metrics" section (MAD, Chi-Square, Conformity Verdict at font 10) → "Key Takeaway" section (soft blue header, warm yellow body, dynamic text based on `stats['mad']` and `stats['p_value']`). |
+| 8 — **Summary** | Dataset counts, tier distribution, audit sample breakdown, "KEY FINDINGS" section (Reversal / Credit Note count + abs SGD; Potential FY Split Purchases group count + SGD — both zero-safe). Amber-background note on T08 de-prioritisation. Two dark-navy-header blocks: "Scope and Limitations" and "Sample Selection Basis". |
+
+**Shared review-sheet helpers:** `_amber_note(ws, text, n_cols, row)` (full-width amber banner) and `_write_summary_block(ws, start_row, items, label_span=3)` (navy-label / white-value rows) are used by both new review sheets.
 
 **`Voucher Line Description(s)` in Tab 1:** fixed column width 50. Collected in `_rollup_vouchers()` using list comprehension with `pd.notna()` guard — do NOT use `.astype(str).str.strip().pipe(...isin...)` (float NaN breaks `str.join()`).
 
@@ -21,7 +27,7 @@ Read this when editing `excel_exporter.py` or `report_generator.py`.
 |---|---|---|
 | 1 | Portrait | **Scope and Limitations** — 4 transparency caveats: (1) not a fraud detection tool; (2) line-item scope; (3) pre-calibrated weights; (4) declared weights are approximate. Rendered by `_page_caveats(doc)`, called first. |
 | 2 | Portrait | **Executive Summary** — two body paragraphs + dataset overview table + summary of findings bullets. Opening paragraph: composite risk score, stratification, diversity controls (no technical detail), professional judgement caveat. Does NOT name T08, Jaccard threshold, or vendor cap. Closing paragraph: reason codes, line-to-voucher rollup, pointers to Excel tabs. Bullets include duplicate payment count and split purchase risk count. Dataset overview "Payment Voucher Period" uses `Voucher Accounting Date` min/max. |
-| 3 | Portrait | **Methodology** — audit-grade standalone. Opening: purpose + cross-reference to Executive Summary (does NOT re-summarise). Then: Stage 1 feature engineering; Stage 2 five analytical methods with individual caveats; Stage 3 exact line-level formula + weight rationale table; Benford suppression rule; Stage 4 voucher rollup formula; ML consensus flag explanation; "Risk Tier Assignment and Sample Selection" subsection (percentile cutoffs, stratified draw, similarity deduplication, vendor cap, T08 de-prioritisation with dynamic T08 count via `t08_count` parameter). `_page2()` accepts `t08_count`; `export_word_report()` computes from `df_vouchers['is_t08_vendor'].sum()`. |
+| 3 | Portrait | **Methodology** — audit-grade standalone. Opening: purpose + cross-reference to Executive Summary (does NOT re-summarise). Then: Stage 1 feature engineering; Stage 2 five analytical methods with individual caveats; Stage 3 exact line-level formula + weight rationale table; Benford suppression rule; Stage 4 voucher rollup formula; ML consensus flag explanation; "Potential Fiscal Year Split Purchases" subsection (review aid, 3 paragraphs, explicitly NOT scored); "Risk Tier Assignment and Sample Selection" subsection (percentile cutoffs, stratified draw, similarity deduplication, vendor cap, T08 de-prioritisation with dynamic T08 count via `t08_count` parameter). `_page2()` accepts `t08_count`; `export_word_report()` computes from `df_vouchers['is_t08_vendor'].sum()`. |
 | 4 | Landscape | **Analytical Charts** — Benford's Law distribution + voucher risk score histogram, side by side in borderless 2-column table. |
 | 5 | Landscape | **Payment Distribution & Timeline** — amount distribution (log scale) + monthly timeline (dual-axis bar/line), stacked full-width. |
 | 6 | Landscape | **Vendor Analysis** — top 10 vendors by transaction count and by total amount. Total-amount chart x-axis uses `MaxNLocator(nbins=4)` — do NOT remove (prevents cluttered large SGD amounts). |

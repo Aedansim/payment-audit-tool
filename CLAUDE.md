@@ -20,7 +20,7 @@ benfords_law.analyze()  → df + benford_* columns, summary_df, stats_dict
 run_ensemble()          → df + if_score, lof_score, zscore_score, if_anomaly, lof_anomaly, zscore_anomaly
 select_samples()        → df_scored, df_vouchers, selected_vouchers
     ↓
-export_excel()          — 6-tab openpyxl workbook
+export_excel()          — 8-tab openpyxl workbook
 export_word_report()    — 7-page python-docx report with embedded matplotlib charts
 ```
 
