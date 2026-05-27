@@ -15,13 +15,14 @@ git add src/<file>.py && git commit -m "short imperative" && git push
 
 ```
 load_transactions()     → df (raw)
-engineer_features()     → df + feature columns, ml_feature_names[]
+load_excluded_vendors() → ExcludedVendors(uens, names)  (reads data/Excluded vendors.xlsx; optional)
+engineer_features(df, excluded_uens)  → df + feature columns, ml_feature_names[]
 benfords_law.analyze()  → df + benford_* columns, summary_df, stats_dict
 run_ensemble()          → df + if_score, lof_score, zscore_score, if_anomaly, lof_anomaly, zscore_anomaly
-select_samples()        → df_scored, df_vouchers, selected_vouchers
+select_samples(df, n_samples, excluded_uens)  → df_scored, df_vouchers, selected_vouchers
     ↓
-export_excel()          — 8-tab openpyxl workbook
-export_word_report()    — 7-page python-docx report with embedded matplotlib charts
+export_excel()          — 10-tab openpyxl workbook (charts embedded as matplotlib images)
+export_word_report()    — 4-page python-docx methodology report (no charts; data moved to Excel)
 ```
 
 Orchestrated by `Payment_Audit_Tool.ipynb`. Notebook step order: STEP 0 = config (INPUT_FILE, SAMPLE_SIZE, WEIGHTS), STEP 1 = package install.
@@ -30,13 +31,13 @@ Orchestrated by `Payment_Audit_Tool.ipynb`. Notebook step order: STEP 0 = config
 
 | Module | Key export |
 |---|---|
-| `data_loader` | `load_transactions(filepath) → df` |
-| `feature_engineering` | `engineer_features(df) → (df, ml_features[])` |
+| `data_loader` | `load_transactions(filepath) → df` ; `load_excluded_vendors(data_folder) → ExcludedVendors(uens, names)` |
+| `feature_engineering` | `engineer_features(df, excluded_uens=None) → (df, ml_features[])` |
 | `benfords_law` | `analyze(df) → (df, summary_df, stats_dict)` |
 | `ml_models` | `run_ensemble(df, ml_features) → df` |
-| `sample_selector` | `select_samples(df, n_samples) → (df_scored, df_vouchers, selected_vouchers)` |
-| `excel_exporter` | `export_excel(df_scored, df_vouchers, selected_vouchers, summary, stats, path)` |
-| `report_generator` | `export_word_report(df_scored, df_vouchers, selected_vouchers, stats, path)` |
+| `sample_selector` | `select_samples(df, n_samples, excluded_uens=None) → (df_scored, df_vouchers, selected_vouchers)` |
+| `excel_exporter` | `export_excel(df_scored, df_vouchers, selected_vouchers, summary, stats, path, excluded=None)` |
+| `report_generator` | `export_word_report(df_scored, df_vouchers, selected_vouchers, stats, path, excluded_count=0)` |
 
 ## Required input columns (10 — raises ValueError if any missing)
 

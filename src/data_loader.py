@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from collections import namedtuple
 from pathlib import Path
 
 REQUIRED_COLUMNS = [
@@ -9,6 +10,13 @@ REQUIRED_COLUMNS = [
     'Payment Voucher Amount (SGD, Excluding GST)',
 ]
 AMOUNT_COL = 'Payment Voucher Amount (SGD, Excluding GST)'
+
+# uens: set of excluded Vendor IDs (UENs); names: uen -> entity_name (display only).
+ExcludedVendors = namedtuple('ExcludedVendors', ['uens', 'names'])
+
+_EXCLUDED_FILENAMES = {
+    'excluded vendors.xlsx', 'excluded_vendors.xlsx',
+}
 
 
 def load_transactions(filepath):
@@ -57,3 +65,55 @@ def load_transactions(filepath):
 
     print(f"  {len(df):,} transactions loaded successfully.")
     return df
+
+
+def load_excluded_vendors(data_folder):
+    """Load the user-maintained exclusion list from the data/ folder.
+
+    Looks for 'Excluded vendors.xlsx' (also 'Excluded_vendors.xlsx' /
+    'Excluded Vendors.xlsx', matched case-insensitively). The file has a 'uen'
+    column (matched against 'Vendor ID') and an optional 'entity_name' column
+    (display only). Returns an ExcludedVendors(uens, names) namedtuple.
+    """
+    folder = Path(data_folder)
+    match = None
+    if folder.is_dir():
+        for p in folder.iterdir():
+            if p.is_file() and p.name.lower() in _EXCLUDED_FILENAMES:
+                match = p
+                break
+
+    if match is None:
+        print("  Note: No 'Excluded vendors.xlsx' file found in the data/ folder. "
+              "No vendors will be excluded from sample selection on this basis.")
+        return ExcludedVendors(set(), {})
+
+    raw = pd.read_excel(match, dtype=str)
+    col_map = {str(c).strip().lower(): c for c in raw.columns}
+
+    if 'uen' not in col_map:
+        raise ValueError(
+            "\n  The 'Excluded vendors' file is missing a 'uen' column."
+            "\n  Columns found in your file:\n    " +
+            "\n    ".join(str(c) for c in raw.columns.tolist())
+        )
+
+    uens = set()
+    names = {}
+    has_names = 'entity_name' in col_map
+    for _, row in raw.iterrows():
+        uen = row[col_map['uen']]
+        if pd.isna(uen):
+            continue
+        uen = str(uen).strip()
+        if not uen:
+            continue
+        uens.add(uen)
+        if has_names:
+            name = row[col_map['entity_name']]
+            names[uen] = '' if pd.isna(name) else str(name).strip()
+        else:
+            names[uen] = ''
+
+    print(f"  Loaded {len(uens)} excluded vendor UEN(s) from 'Excluded vendors.xlsx'.")
+    return ExcludedVendors(uens, names)

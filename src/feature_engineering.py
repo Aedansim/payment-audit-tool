@@ -234,12 +234,17 @@ def _normalise_fy_desc(desc):
     return fallback if fallback else np.nan
 
 
-def _detect_fy_split_purchase(df):
+def _detect_fy_split_purchase(df, excluded_uens=None):
     """Flag positive-amount payments belonging to a (Vendor ID, fiscal year, normalised
     description) group of 2+ payments whose positive total exceeds SGD 6,000.
     Returns (is_fy_split_purchase, fy_split_group_total, fy_split_group_count,
     fy_split_fy_label) Series aligned to df.index. Deterministic exact-match grouping
-    on the cleaned key — not the pairwise similarity used during sample selection."""
+    on the cleaned key — not the pairwise similarity used during sample selection.
+
+    Transactions whose Vendor ID is in excluded_uens (UENs from the Excluded vendors
+    file, trimmed full-identifier match) are excluded: never flagged and never
+    contributing to any group's total or count."""
+    excluded_set = {str(u).strip() for u in excluded_uens} if excluded_uens else set()
     is_split    = pd.Series(0, index=df.index)
     grp_total   = pd.Series(0.0, index=df.index)
     grp_count   = pd.Series(0, index=df.index)
@@ -255,6 +260,12 @@ def _detect_fy_split_purchase(df):
     eligible = work[
         work['_fy'].notna() & work['_desc_norm'].notna() & (work['_amount'] > 0)
     ]
+    if excluded_set:
+        is_excl = eligible['_vid'].astype(str).str.strip().isin(excluded_set)
+        n_excl = int(is_excl.sum())
+        eligible = eligible[~is_excl]
+        print(f"  Excluded {n_excl} transaction(s) from FY split purchase detection "
+              f"(vendors in Excluded vendors file).")
     n_flagged = n_groups = 0
     if not eligible.empty:
         for (_vid, fy, _desc), grp in eligible.groupby(['_vid', '_fy', '_desc_norm'], sort=False):
@@ -348,10 +359,14 @@ def _prune_correlated(df, features, threshold=0.85):
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def engineer_features(df):
+def engineer_features(df, excluded_uens=None):
     """
     Compute all risk features.
     Returns (df_with_features, ml_feature_names_after_pruning).
+
+    excluded_uens : set of str, optional
+        Vendor IDs (UENs) from the 'Excluded vendors.xlsx' file. Their transactions
+        are excluded from FY split purchase detection. None → no exclusions.
     """
     print("  Computing amount z-scores...")
     df['amount_log'] = np.log1p(df[AMOUNT_COL].abs())
@@ -413,7 +428,7 @@ def engineer_features(df):
 
     print("  Detecting potential FY split purchases (same vendor, similar description, same fiscal year)...")
     (df['is_fy_split_purchase'], df['fy_split_group_total'],
-     df['fy_split_group_count'], df['fy_split_fy_label']) = _detect_fy_split_purchase(df)
+     df['fy_split_group_count'], df['fy_split_fy_label']) = _detect_fy_split_purchase(df, excluded_uens)
 
     ml_features = [
         'amount_log',

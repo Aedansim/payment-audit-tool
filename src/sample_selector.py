@@ -362,14 +362,14 @@ def _similarity_filter(selected, df_vouchers, df_scored, threshold=0.70):
                 retained_vids.append(vid)
 
         for (drop_id, sim_score) in to_drop:
-            # Search unselected vouchers: non-T08 first (preserving de-prioritisation),
-            # T08 appended as last resort only.
+            # Search unselected vouchers: non-excluded first (preserving
+            # de-prioritisation), excluded vendors appended as last resort only.
             current_retained_ids = selected_ids - {drop_id}
             _not_sel = ~df_vouchers['Voucher ID'].isin(selected_ids)
-            if 'is_t08_vendor' in df_vouchers.columns:
-                _non_t08 = df_vouchers[_not_sel & ~df_vouchers['is_t08_vendor']].sort_values('voucher_score', ascending=False)
-                _t08 = df_vouchers[_not_sel & df_vouchers['is_t08_vendor']].sort_values('voucher_score', ascending=False)
-                candidates = pd.concat([_non_t08, _t08])
+            if 'is_excluded_vendor' in df_vouchers.columns:
+                _non_excl = df_vouchers[_not_sel & ~df_vouchers['is_excluded_vendor']].sort_values('voucher_score', ascending=False)
+                _excl = df_vouchers[_not_sel & df_vouchers['is_excluded_vendor']].sort_values('voucher_score', ascending=False)
+                candidates = pd.concat([_non_excl, _excl])
             else:
                 candidates = df_vouchers[_not_sel].sort_values('voucher_score', ascending=False)
 
@@ -469,10 +469,10 @@ def _vendor_cap(selected, df_vouchers, df_scored, threshold=0.70):
             current_retained_ids = selected_ids - {drop_id}
 
             _not_sel = ~df_vouchers['Voucher ID'].isin(selected_ids)
-            if 'is_t08_vendor' in df_vouchers.columns:
-                _non_t08 = df_vouchers[_not_sel & ~df_vouchers['is_t08_vendor']].sort_values('voucher_score', ascending=False)
-                _t08 = df_vouchers[_not_sel & df_vouchers['is_t08_vendor']].sort_values('voucher_score', ascending=False)
-                candidates = pd.concat([_non_t08, _t08])
+            if 'is_excluded_vendor' in df_vouchers.columns:
+                _non_excl = df_vouchers[_not_sel & ~df_vouchers['is_excluded_vendor']].sort_values('voucher_score', ascending=False)
+                _excl = df_vouchers[_not_sel & df_vouchers['is_excluded_vendor']].sort_values('voucher_score', ascending=False)
+                candidates = pd.concat([_non_excl, _excl])
             else:
                 candidates = df_vouchers[_not_sel].sort_values('voucher_score', ascending=False)
 
@@ -523,7 +523,7 @@ def _vendor_cap(selected, df_vouchers, df_scored, threshold=0.70):
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def select_samples(df, n_samples=25):
+def select_samples(df, n_samples=25, excluded_uens=None):
     """
     Score all rows, roll up to payment voucher level, and select the top n_samples vouchers.
 
@@ -532,6 +532,9 @@ def select_samples(df, n_samples=25):
     n_samples : int, default 25
         Number of vouchers to include in the audit sample. Must be a positive integer.
         Change SAMPLE_SIZE in the notebook's Step 1 cell to override.
+    excluded_uens : set of str, optional
+        Vendor IDs (UENs) read from the 'Excluded vendors.xlsx' file. Their vouchers
+        are de-prioritised to the LOW tier for sampling only. None → no exclusions.
 
     Returns
     -------
@@ -544,6 +547,7 @@ def select_samples(df, n_samples=25):
             f"n_samples must be a positive integer (got {n_samples!r}). "
             "Set SAMPLE_SIZE to a whole number ≥ 1 in the notebook's Step 0 cell."
         )
+    excluded_set = {str(u).strip() for u in excluded_uens} if excluded_uens else set()
     df = compute_risk_scores(df)
     df = df.sort_values('risk_score', ascending=False).reset_index(drop=True)
 
@@ -551,15 +555,17 @@ def select_samples(df, n_samples=25):
     df_vouchers, df = _rollup_vouchers(df)
     df_vouchers = _assign_risk_tier(df_vouchers)
 
-    # Mark T08 vendors and de-prioritise them to LOW for sampling only
-    df_vouchers['is_t08_vendor'] = (
-        df_vouchers['Vendor ID'].astype(str).str.upper().str.startswith('T08')
+    # Mark vendors listed in the Excluded vendors file and de-prioritise them to
+    # LOW for sampling only (trimmed, full-identifier exact match — not a prefix).
+    df_vouchers['is_excluded_vendor'] = (
+        df_vouchers['Vendor ID'].astype(str).str.strip().isin(excluded_set)
     )
-    n_t08 = int(df_vouchers['is_t08_vendor'].sum())
-    if n_t08:
-        print(f"  De-prioritising {n_t08} T08 government agency voucher(s) to LOW tier for sampling.")
+    n_excluded = int(df_vouchers['is_excluded_vendor'].sum())
+    if n_excluded:
+        print(f"  De-prioritised {n_excluded} voucher(s) from sample selection "
+              f"(vendors in Excluded vendors file).")
     df_for_sampling = df_vouchers.copy()
-    df_for_sampling.loc[df_for_sampling['is_t08_vendor'], 'voucher_risk_tier'] = 'LOW'
+    df_for_sampling.loc[df_for_sampling['is_excluded_vendor'], 'voucher_risk_tier'] = 'LOW'
 
     n = min(n_samples, len(df_vouchers))
     selected = _stratified_sample(df_for_sampling, n)
@@ -569,7 +575,7 @@ def select_samples(df, n_samples=25):
         'MEDIUM': 'Proportional selection — elevated risk tier',
         'LOW':    'Baseline — random selection from lower-risk vouchers',
     })
-    # Restore true risk tiers (T08 vouchers show their real tier in all outputs)
+    # Restore true risk tiers (excluded vendors show their real tier in all outputs)
     real_tiers = df_vouchers.set_index('Voucher ID')['voucher_risk_tier'].to_dict()
     selected['voucher_risk_tier'] = (
         selected['Voucher ID'].map(real_tiers).fillna(selected['voucher_risk_tier'])

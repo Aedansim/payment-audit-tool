@@ -1,14 +1,30 @@
+import io
 from pathlib import Path
 import pandas as pd
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 from openpyxl import Workbook
 from openpyxl.styles import (
     PatternFill, Font, Alignment, Border, Side
 )
 from openpyxl.utils import get_column_letter
 from openpyxl.formatting.rule import ColorScaleRule
+from openpyxl.drawing.image import Image as XLImage
 
 AMOUNT_COL = 'Payment Voucher Amount (SGD, Excluding GST)'
+BENFORD_EXPECTED = {d: np.log10(1 + 1 / d) for d in range(1, 10)}
+
+# Hex colours for matplotlib charts
+_HEX = {
+    'navy':   '#1F3864',
+    'blue':   '#2E75B6',
+    'orange': '#ED7D31',
+    'red':    '#C00000',
+    'green':  '#70AD47',
+}
 
 # Colour palette
 HEADER_FILL  = PatternFill("solid", fgColor="1F3864")   # dark navy
@@ -79,6 +95,157 @@ def _write_summary_block(ws, start_row, items, label_span=3):
         vc.font = Font(size=10)
         vc.fill = PatternFill("solid", fgColor="FFFFFF")
     return start_row + len(items)
+
+
+# ---------------------------------------------------------------------------
+# Matplotlib chart builders  (each returns a BytesIO PNG)
+# ---------------------------------------------------------------------------
+
+def _to_image(fig):
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+    buf.seek(0)
+    plt.close(fig)
+    return buf
+
+
+def _chart_benford(benford_stats):
+    digits   = list(range(1, 10))
+    obs_pct  = [benford_stats['observed_pct'].get(d, 0) * 100 for d in digits]
+    exp_pct  = [BENFORD_EXPECTED[d] * 100 for d in digits]
+    deviant  = benford_stats.get('deviant_digits', set())
+    colors   = [_HEX['red'] if d in deviant else _HEX['blue'] for d in digits]
+
+    fig, ax = plt.subplots(figsize=(5.5, 4.0))
+    ax.bar(digits, obs_pct, color=colors, alpha=0.85, label='Observed')
+    ax.plot(digits, exp_pct, 'o--', color=_HEX['orange'], linewidth=2,
+            markersize=5, label="Benford's Expected")
+    ax.set_xticks(digits)
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f'{x:.0f}%'))
+    ax.set_ylabel('Frequency (%)')
+    mad        = benford_stats.get('mad', 0)
+    conformity = benford_stats.get('conformity', '')
+    ax.set_xlabel(f'First Digit  |  MAD: {mad:.4f}  |  Verdict: {conformity}', fontsize=8)
+    ax.set_title("Benford's Law — First Digit Distribution",
+                 fontsize=11, fontweight='bold', color=_HEX['navy'])
+    ax.legend(fontsize=8)
+    ax.grid(axis='y', alpha=0.3)
+    fig.tight_layout()
+    return _to_image(fig)
+
+
+def _chart_risk_distribution(df_vouchers, cutoff_score):
+    scores = df_vouchers['voucher_score'].dropna()
+    fig, ax = plt.subplots(figsize=(5.5, 4.0))
+    ax.hist(scores, bins=50, color=_HEX['blue'], alpha=0.75, edgecolor='white')
+    ax.axvline(cutoff_score, color=_HEX['red'], linestyle='--', linewidth=2,
+               label=f'Selection threshold ({cutoff_score:.3f})')
+    ax.set_xlabel('Voucher Risk Score')
+    ax.set_ylabel('Number of Vouchers')
+    ax.set_title('Voucher Risk Score Distribution',
+                 fontsize=11, fontweight='bold', color=_HEX['navy'])
+    ax.legend(fontsize=8)
+    ax.grid(axis='y', alpha=0.3)
+    fig.tight_layout()
+    return _to_image(fig)
+
+
+def _chart_amount_distribution(df):
+    amounts = df[AMOUNT_COL].dropna().clip(lower=0.01)
+    fig, ax = plt.subplots(figsize=(11.0, 3.2))
+    ax.hist(np.log10(amounts), bins=60, color=_HEX['navy'], alpha=0.80, edgecolor='white')
+    tick_vals   = [0, 1, 2, 3, 4, 5, 6]
+    tick_labels = ['1', '10', '100', '1K', '10K', '100K', '1M']
+    ax.set_xticks(tick_vals)
+    ax.set_xticklabels(tick_labels)
+    ax.set_xlabel('Amount (SGD)')
+    ax.set_ylabel('Number of Transactions')
+    ax.set_title('Payment Amount Distribution (log scale)',
+                 fontsize=11, fontweight='bold', color=_HEX['navy'])
+    ax.grid(axis='y', alpha=0.3)
+    fig.tight_layout()
+    return _to_image(fig)
+
+
+def _chart_timeline(df):
+    df2 = df.copy()
+    df2['Month'] = df2['Invoice Date'].dt.to_period('M')
+    monthly = (
+        df2.groupby('Month')[AMOUNT_COL]
+        .agg(Total='sum', Count='count')
+        .reset_index()
+    )
+    monthly['Month_str'] = monthly['Month'].astype(str)
+
+    fig, ax1 = plt.subplots(figsize=(11.0, 3.2))
+    x = range(len(monthly))
+    ax1.bar(list(x), monthly['Total'], color=_HEX['blue'], alpha=0.80,
+            label='Total Amount (SGD)')
+    ax1.set_ylabel('Total Amount (SGD)', color=_HEX['blue'], fontsize=9)
+    ax1.tick_params(axis='y', labelcolor=_HEX['blue'])
+    ax1.yaxis.set_major_formatter(
+        mticker.FuncFormatter(lambda v, _: f'{v:,.0f}'))
+
+    ax2 = ax1.twinx()
+    ax2.plot(list(x), monthly['Count'], 'o-', color=_HEX['orange'],
+             linewidth=2, markersize=4, label='Transaction Count')
+    ax2.set_ylabel('Transaction Count', color=_HEX['orange'], fontsize=9)
+    ax2.tick_params(axis='y', labelcolor=_HEX['orange'])
+
+    ax1.set_xticks(list(x))
+    ax1.set_xticklabels(monthly['Month_str'], rotation=45, ha='right', fontsize=7)
+    ax1.set_title('Monthly Payment Timeline',
+                  fontsize=11, fontweight='bold', color=_HEX['navy'])
+
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines1 + lines2, labels1 + labels2, fontsize=8, loc='upper left')
+    ax1.grid(axis='y', alpha=0.3)
+    fig.tight_layout()
+    return _to_image(fig)
+
+
+def _chart_top_vendors(df):
+    top_count = (
+        df.groupby('Vendor Name')[AMOUNT_COL]
+        .agg(Count='count', Total='sum')
+        .nlargest(10, 'Count')
+        .reset_index()
+    )
+    top_amt = (
+        df.groupby('Vendor Name')[AMOUNT_COL]
+        .agg(Count='count', Total='sum')
+        .nlargest(10, 'Total')
+        .reset_index()
+    )
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.0, 4.2))
+
+    y1 = range(len(top_count))
+    ax1.barh(list(y1), top_count['Count'], color=_HEX['blue'], alpha=0.85)
+    ax1.set_yticks(list(y1))
+    ax1.set_yticklabels(top_count['Vendor Name'], fontsize=7)
+    ax1.invert_yaxis()
+    ax1.set_xlabel('Transaction Count')
+    ax1.set_title('Top 10 Vendors by Transaction Count',
+                  fontsize=10, fontweight='bold', color=_HEX['navy'])
+    ax1.grid(axis='x', alpha=0.3)
+
+    y2 = range(len(top_amt))
+    ax2.barh(list(y2), top_amt['Total'], color=_HEX['navy'], alpha=0.85)
+    ax2.set_yticks(list(y2))
+    ax2.set_yticklabels(top_amt['Vendor Name'], fontsize=7)
+    ax2.invert_yaxis()
+    ax2.set_xlabel('Total Amount (SGD)')
+    ax2.set_title('Top 10 Vendors by Total Amount',
+                  fontsize=10, fontweight='bold', color=_HEX['navy'])
+    ax2.xaxis.set_major_locator(mticker.MaxNLocator(nbins=4, integer=True))
+    ax2.xaxis.set_major_formatter(
+        mticker.FuncFormatter(lambda v, _: f'{v:,.0f}'))
+    ax2.grid(axis='x', alpha=0.3)
+
+    fig.tight_layout()
+    return _to_image(fig)
 
 
 # ---------------------------------------------------------------------------
@@ -368,15 +535,17 @@ def _sheet_all_lines(wb, df_scored):
 _REVERSALS_NOTE = (
     "Reversals Review — All reversal and credit note transactions (negative amounts). "
     "Reversals are a normal accounting mechanism but can also be used to manipulate or disguise "
-    "payments. The matched original payment column shows the likely counterpart positive payment "
-    "where one could be identified by matching vendor and absolute amount. Auditors should "
-    "review whether each reversal is supported and appropriate."
+    "payments. The tool attempts to match each reversal to its likely original positive payment "
+    "using a three-tier cascade: (1) vendor + invoice number + amount, (2) vendor + invoice "
+    "number, (3) vendor + amount. The 'Match Basis' column states which tier matched, indicating "
+    "how confident the match is. Auditors should review whether each reversal is supported and "
+    "appropriate."
 )
 
 _REVERSALS_HEADERS = [
     'Vendor ID', 'Vendor Name', 'Voucher ID', 'Invoice Number',
     'Invoice Date', 'Voucher Accounting Date', 'Voucher Line Description',
-    'Amount (SGD)', 'Matched Original Payment (Voucher ID)',
+    'Amount (SGD)', 'Matched Original Payment (Voucher ID)', 'Match Basis',
 ]
 
 
@@ -398,21 +567,52 @@ def _sheet_reversals_review(wb, df_scored):
         _auto_width(ws)
         return
 
-    # Lookup of positive payments: (Vendor ID, rounded amount) -> distinct Voucher IDs
+    # Build three matching lookups from positive payments (the candidate originals).
+    # Reversals are negative, so a reversal can never appear in `pos` (no self-match).
     pos = df_scored[df_scored[AMOUNT_COL] > 0]
-    pos_lookup = {}
-    for vid_, amt_, vch_ in zip(pos['Vendor ID'], pos[AMOUNT_COL], pos['Voucher ID']):
+    t1_lookup = {}  # (Vendor ID, invoice, abs amount) -> {Voucher IDs}
+    t2_lookup = {}  # (Vendor ID, invoice)             -> {Voucher IDs}
+    t3_lookup = {}  # (Vendor ID, abs amount)          -> {Voucher IDs}
+    for vid_, inv_, amt_, vch_ in zip(
+            pos['Vendor ID'], pos['Invoice Number'], pos[AMOUNT_COL], pos['Voucher ID']):
         if pd.isna(amt_):
             continue
-        pos_lookup.setdefault((vid_, round(float(amt_), 2)), set()).add(str(vch_))
+        amt_r = round(float(amt_), 2)
+        inv_s = '' if pd.isna(inv_) else str(inv_).strip()
+        vch_s = str(vch_)
+        t3_lookup.setdefault((vid_, amt_r), set()).add(vch_s)
+        if inv_s:
+            t1_lookup.setdefault((vid_, inv_s, amt_r), set()).add(vch_s)
+            t2_lookup.setdefault((vid_, inv_s), set()).add(vch_s)
 
-    def _matched(vid_, amt_):
+    _NO_MATCH = "(no matching original payment identified)"
+
+    def _matched(vid_, inv_, amt_):
+        """Three-tier cascade: most specific match first, progressive fallback.
+        Returns (voucher_ids_str, match_basis_str)."""
         if pd.isna(amt_):
-            return "(no matching original payment identified)"
-        vids = pos_lookup.get((vid_, round(abs(float(amt_)), 2)))
-        if not vids:
-            return "(no matching original payment identified)"
-        return ", ".join(sorted(vids))
+            return _NO_MATCH, ""
+        amt_r = round(abs(float(amt_)), 2)
+        inv_s = '' if pd.isna(inv_) else str(inv_).strip()
+        # Tier 1 — vendor + invoice number + amount
+        if inv_s:
+            ids = t1_lookup.get((vid_, inv_s, amt_r))
+            if ids:
+                return ", ".join(sorted(ids)), "matched on vendor + invoice number + amount"
+        # Tier 2 — vendor + invoice number (amount differs); skipped if invoice blank
+        if inv_s:
+            ids = t2_lookup.get((vid_, inv_s))
+            if ids:
+                return ", ".join(sorted(ids)), \
+                    "matched on vendor + invoice number only — amount differs"
+        # Tier 3 — vendor + amount (invoice did not match / blank)
+        ids = t3_lookup.get((vid_, amt_r))
+        if ids:
+            return ", ".join(sorted(ids)), (
+                "matched on vendor + amount only — invoice number did not match; "
+                "may be a credit note under a new number"
+            )
+        return _NO_MATCH, ""
 
     rev = rev.sort_values(['Vendor ID', 'Voucher Accounting Date']).reset_index(drop=True)
 
@@ -432,15 +632,16 @@ def _sheet_reversals_review(wb, df_scored):
             fill_idx = 1 - fill_idx
             prev_vid = cur_vid
         row_fill = fills[fill_idx]
-        matched = _matched(cur_vid, r.get(AMOUNT_COL))
-        if matched.startswith("(no matching"):
+        matched_ids, match_basis = _matched(
+            cur_vid, r.get('Invoice Number'), r.get(AMOUNT_COL))
+        if matched_ids == _NO_MATCH:
             n_no_match += 1
 
         values = [
             r.get('Vendor ID', ''), r.get('Vendor Name', ''), r.get('Voucher ID', ''),
             r.get('Invoice Number', ''), r.get('Invoice Date', None),
             r.get('Voucher Accounting Date', None), r.get('Voucher Line Description', ''),
-            r.get(AMOUNT_COL, None), matched,
+            r.get(AMOUNT_COL, None), matched_ids, match_basis,
         ]
         excel_row = i + 3
         for c_idx, (hdr, value) in enumerate(zip(headers, values), start=1):
@@ -457,7 +658,8 @@ def _sheet_reversals_review(wb, df_scored):
     ws.freeze_panes = "A3"
     _auto_width(ws)
     ws.column_dimensions[get_column_letter(headers.index('Voucher Line Description') + 1)].width = 40
-    ws.column_dimensions[get_column_letter(n_cols)].width = 30
+    ws.column_dimensions[get_column_letter(headers.index('Matched Original Payment (Voucher ID)') + 1)].width = 30
+    ws.column_dimensions[get_column_letter(headers.index('Match Basis') + 1)].width = 45
 
     n_rev = len(rev)
     n_vendors = rev['Vendor ID'].nunique()
@@ -721,13 +923,15 @@ def _sheet_benford(wb, benford_summary, stats):
 # Sheet 6 — Summary
 # ---------------------------------------------------------------------------
 
-def _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats):
+def _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats, excluded=None):
     ws = wb.create_sheet("Summary")
 
     ws['A1'] = "Payment Audit — Summary"
     ws['A1'].font = Font(bold=True, size=14, color="1F3864")
     ws.merge_cells('A1:C1')
     ws.row_dimensions[1].height = 28
+
+    n_excluded = len(excluded.uens) if excluded is not None else 0
 
     n_lines    = len(df_scored)
     n_vouchers = len(df_vouchers)
@@ -739,6 +943,42 @@ def _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats)
     n_vch_high = int((df_vouchers.get('voucher_risk_tier', pd.Series()) == 'HIGH').sum())
     n_vch_med  = int((df_vouchers.get('voucher_risk_tier', pd.Series()) == 'MEDIUM').sum())
     n_vch_low  = int((df_vouchers.get('voucher_risk_tier', pd.Series()) == 'LOW').sum())
+
+    # ---- Dataset overview values ----
+    total_amt = float(df_scored[AMOUNT_COL].sum())
+    n_vendors = int(df_scored['Vendor ID'].nunique())
+    date_min  = df_scored['Voucher Accounting Date'].min()
+    date_max  = df_scored['Voucher Accounting Date'].max()
+    period = (
+        f"{date_min.strftime('%d/%m/%Y')} to {date_max.strftime('%d/%m/%Y')}"
+        if pd.notna(date_min) and pd.notna(date_max) else "N/A"
+    )
+    amt_min = float(df_scored[AMOUNT_COL].min())
+    amt_max = float(df_scored[AMOUNT_COL].max())
+
+    # ---- Findings values ----
+    n_benford  = int(df_scored.get('benford_flag',    pd.Series(0, index=df_scored.index)).sum())
+    n_if_high  = int(df_scored.get('if_anomaly',      pd.Series(0, index=df_scored.index)).sum())
+    n_lof_high = int(df_scored.get('lof_anomaly',     pd.Series(0, index=df_scored.index)).sum())
+    n_z_high   = int(df_scored.get('zscore_anomaly',  pd.Series(0, index=df_scored.index)).sum())
+    n_rule     = int((df_scored.get('rule_flags_score', pd.Series(0, index=df_scored.index)) > 0).sum())
+
+    if 'voucher_reason_codes' in df_vouchers.columns:
+        dup_mask   = df_vouchers['voucher_reason_codes'].str.contains('Potential duplicate payment', na=False)
+        split_mask = df_vouchers['voucher_reason_codes'].str.contains('Split purchase risk', na=False)
+    else:
+        dup_mask = split_mask = pd.Series(False, index=df_vouchers.index)
+    n_dup_vch  = int(dup_mask.sum())
+    n_split_vch = int(split_mask.sum())
+    has_amt = 'voucher_total_amount' in df_vouchers.columns
+    amt_dup   = float(df_vouchers.loc[dup_mask, 'voucher_total_amount'].sum()) if has_amt else 0.0
+    amt_split = float(df_vouchers.loc[split_mask, 'voucher_total_amount'].sum()) if has_amt else 0.0
+
+    if 'voucher_score' in selected_vouchers.columns and n_sel:
+        score_min = float(selected_vouchers['voucher_score'].min())
+        score_max = float(selected_vouchers['voucher_score'].max())
+    else:
+        score_min = score_max = 0.0
 
     rev_mask    = df_scored.get('is_reversal', pd.Series(0, index=df_scored.index)) == 1
     n_reversals = int(rev_mask.sum())
@@ -755,10 +995,14 @@ def _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats)
         n_fy_groups, fy_total = 0, 0.0
 
     rows = [
-        ("DATASET", None),
+        ("DATASET OVERVIEW", None),
+        ("Payment voucher period", period),
         ("Total transaction line items", f"{n_lines:,}"),
         ("Unique payment vouchers", f"{n_vouchers:,}"),
         ("Average lines per voucher", f"{avg_lines:.1f}"),
+        ("Unique vendors", f"{n_vendors:,}"),
+        ("Total payments (SGD)", f"{total_amt:,.2f}"),
+        ("Amount range (SGD)", f"{amt_min:,.2f} to {amt_max:,.2f}"),
         ("Recurring payments excluded from Benford's", f"{benford_stats.get('n_excluded_recurring', 0):,}"),
         ("", None),
         ("VOUCHER RISK TIERS (all vouchers)", None),
@@ -774,10 +1018,19 @@ def _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats)
         ("Total line items in selected vouchers",
          f"{int(selected_vouchers['voucher_line_count'].sum()):,}"
          if 'voucher_line_count' in selected_vouchers.columns else "N/A"),
+        ("Voucher risk score range (selected)", f"{score_min:.3f} – {score_max:.3f}"),
         ("", None),
-        ("KEY FINDINGS", None),
-        ("Reversal / Credit Note Transactions:", f"{n_reversals:,} (SGD {abs_rev_tot:,.2f})"),
-        ("Potential FY Split Purchases:", f"{n_fy_groups:,} group(s) (SGD {fy_total:,.2f})"),
+        ("SUMMARY OF FINDINGS", None),
+        ("Benford's Law deviations flagged", f"{n_benford:,} transaction line(s)"),
+        ("Isolation Forest anomalies (top 5% boundary)", f"{n_if_high:,} transaction line(s)"),
+        ("Local outlier anomalies (top 5% boundary)", f"{n_lof_high:,} transaction line(s)"),
+        ("Statistical z-score outliers", f"{n_z_high:,} transaction line(s)"),
+        ("Rule-based flags triggered", f"{n_rule:,} transaction line(s)"),
+        ("Potential duplicate payments", f"{n_dup_vch:,} voucher(s) (SGD {amt_dup:,.2f})"),
+        ("Split purchase risk", f"{n_split_vch:,} voucher(s) (SGD {amt_split:,.2f})"),
+        ("Reversal / credit note transactions", f"{n_reversals:,} (SGD {abs_rev_tot:,.2f})"),
+        ("Potential FY split purchases", f"{n_fy_groups:,} group(s) (SGD {fy_total:,.2f})"),
+        ("De-prioritised / excluded vendors (UENs loaded)", f"{n_excluded:,}"),
     ]
 
     for r_offset, (label, value) in enumerate(rows, start=3):
@@ -803,20 +1056,24 @@ def _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats)
     for r in range(3, 3 + len(rows)):
         ws.row_dimensions[r].height = 15
 
-    # T08 de-prioritisation note
+    # Excluded vendors de-prioritisation note
     note_row = 3 + len(rows) + 1
     note_text = (
-        "Note: Vendors with IDs beginning with 'T08' (typically government agencies) have been "
-        "de-prioritised and will not be selected as samples unless no other vouchers are "
-        "available in the lower risk tier. They remain visible in the All Vouchers Scored "
-        "sheet for reference."
+        "Note: Vendors listed in the 'Excluded vendors.xlsx' file in the data folder are "
+        "de-prioritised in sample selection. The file is matched by UEN, which corresponds to "
+        "Vendor ID in the dataset. De-prioritised vendors are excluded from the HIGH and MEDIUM "
+        "selection tiers and will only appear in the sample if insufficient non-excluded vouchers "
+        "exist in the lower tier. They remain fully visible in the All Vouchers Scored sheet with "
+        "their true scores. Government agencies and any other vendors to be excluded should be "
+        f"listed in this file. {n_excluded} vendor UEN(s) were loaded from the Excluded vendors "
+        "file for this run."
     )
     note_cell = ws.cell(row=note_row, column=1, value=note_text)
     note_cell.fill = PatternFill("solid", fgColor="FFC000")
     note_cell.font = Font(size=10, bold=False)
     note_cell.alignment = Alignment(wrap_text=True, vertical='top')
     ws.merge_cells(f'A{note_row}:C{note_row}')
-    ws.row_dimensions[note_row].height = 40
+    ws.row_dimensions[note_row].height = 75
 
     # Caveat and selection explanation blocks
     _summary_extra = [
@@ -838,11 +1095,12 @@ def _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats)
             "considerations are applied to ensure sample diversity: transactions with a high "
             "degree of similarity in payment description within the same vendor are deduplicated "
             "in favour of the higher-scoring voucher, and a limit of 2 samples per vendor is "
-            "enforced. Vendors with IDs beginning with 'T08' (typically government agencies) are "
-            "de-prioritised and will not appear in the sample unless insufficient non-T08 "
-            "vouchers are available. The selected samples are intended as risk-based suggestions "
-            "to guide audit focus. Auditors should exercise professional judgement in determining "
-            "which payments to proceed with for further testing.",
+            "enforced. Vendors listed in the organisation's 'Excluded vendors' file (matched by "
+            "UEN, which corresponds to Vendor ID) are de-prioritised and will not appear in the "
+            "sample unless insufficient non-excluded vouchers are available. The selected samples "
+            "are intended as risk-based suggestions to guide audit focus. Auditors should exercise "
+            "professional judgement in determining which payments to proceed with for further "
+            "testing.",
         ),
     ]
     cur_row = note_row + 2  # leave blank gap
@@ -864,11 +1122,107 @@ def _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats)
 
 
 # ---------------------------------------------------------------------------
+# Sheet — Analytical Charts (embedded matplotlib images)
+# ---------------------------------------------------------------------------
+
+def _sheet_analytical_charts(wb, df_scored, df_vouchers, selected_vouchers, benford_stats):
+    ws = wb.create_sheet("Analytical Charts")
+    ws.sheet_view.showGridLines = False
+
+    cutoff = float(selected_vouchers['voucher_score'].min()) \
+        if 'voucher_score' in selected_vouchers.columns and len(selected_vouchers) else 0.0
+
+    # (title, caption, image buffer, rows to advance before the next chart)
+    charts = [
+        ("Benford's Law — Observed vs Expected First-Digit Distribution",
+         "Observed first-digit frequencies (bars; red = deviant digits) against Benford's "
+         "expected distribution (dashed line).",
+         _chart_benford(benford_stats), 32),
+        ("Voucher Risk Score Distribution",
+         "Distribution of composite voucher risk scores; the dashed line marks the sample "
+         "selection threshold.",
+         _chart_risk_distribution(df_vouchers, cutoff), 32),
+        ("Payment Amount Distribution",
+         "Histogram of payment amounts on a log scale across all transactions.",
+         _chart_amount_distribution(df_scored), 28),
+        ("Monthly Payment Timeline",
+         "Monthly total payment value (bars, left axis) and transaction count (line, right axis).",
+         _chart_timeline(df_scored), 28),
+        ("Top 10 Vendors",
+         "Top 10 vendors by transaction count (left) and by total payment value (right).",
+         _chart_top_vendors(df_scored), 34),
+    ]
+
+    row = 1
+    for title, caption, img_buf, span in charts:
+        tc = ws.cell(row=row, column=1, value=title)
+        tc.font = Font(bold=True, size=12, color="1F3864")
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=8)
+        cap = ws.cell(row=row + 1, column=1, value=caption)
+        cap.font = Font(italic=True, size=9, color="666666")
+        cap.alignment = Alignment(wrap_text=True, vertical='top')
+        ws.merge_cells(start_row=row + 1, start_column=1, end_row=row + 1, end_column=8)
+        ws.add_image(XLImage(img_buf), f"A{row + 2}")
+        row += span
+
+    ws.column_dimensions['A'].width = 18
+
+
+# ---------------------------------------------------------------------------
+# Sheet — Excluded Vendors (reference)
+# ---------------------------------------------------------------------------
+
+_EXCLUDED_NOTE = (
+    "Excluded Vendors — This list is read from the 'Excluded vendors.xlsx' file in the data "
+    "folder and can be edited by the user (add or delete entries) between runs. Only the 'uen' "
+    "column is used for matching against Vendor ID in the dataset; 'entity_name' is shown for "
+    "reference only and does not affect exclusion. Listed vendors are de-prioritised in sample "
+    "selection (excluded from the HIGH and MEDIUM tiers) and from FY split purchase detection, "
+    "but remain fully scored and visible in all other sheets."
+)
+
+
+def _sheet_excluded_vendors(wb, excluded):
+    ws = wb.create_sheet("Excluded Vendors")
+    headers = ["Excluded Vendor UEN", "Entity Name"]
+    n_cols = len(headers)
+
+    _amber_note(ws, _EXCLUDED_NOTE, n_cols, row=1)
+    ws.row_dimensions[1].height = 75
+    _write_header_row(ws, headers, row=2)
+
+    uens = sorted(excluded.uens) if excluded is not None else []
+    names = excluded.names if excluded is not None else {}
+
+    if not uens:
+        ws.cell(row=3, column=1,
+                value="No vendors were excluded via the Excluded vendors file for this run.")
+        ws.merge_cells(start_row=3, start_column=1, end_row=3, end_column=n_cols)
+        ws.freeze_panes = "A3"
+        _auto_width(ws)
+        return
+
+    fills = [ALT_FILL, ALT2_FILL]
+    for i, uen in enumerate(uens):
+        excel_row = i + 3
+        row_fill = fills[i % 2]
+        for c_idx, value in enumerate([uen, names.get(uen, '')], start=1):
+            cell = ws.cell(row=excel_row, column=c_idx, value=value)
+            cell.border = THIN_BORDER
+            cell.alignment = Alignment(vertical='top', wrap_text=True)
+            cell.fill = row_fill
+
+    ws.freeze_panes = "A3"
+    _auto_width(ws)
+    ws.column_dimensions[get_column_letter(2)].width = 45
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
 def export_excel(df_scored, df_vouchers, selected_vouchers,
-                 benford_summary, benford_stats, output_path):
+                 benford_summary, benford_stats, output_path, excluded=None):
     wb = Workbook()
 
     _sheet_selected_vouchers(wb, selected_vouchers)
@@ -878,7 +1232,9 @@ def export_excel(df_scored, df_vouchers, selected_vouchers,
     _sheet_reversals_review(wb, df_scored)
     _sheet_fy_split_purchase(wb, df_scored)
     _sheet_benford(wb, benford_summary, benford_stats)
-    _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats)
+    _sheet_analytical_charts(wb, df_scored, df_vouchers, selected_vouchers, benford_stats)
+    _sheet_excluded_vendors(wb, excluded)
+    _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats, excluded)
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)
