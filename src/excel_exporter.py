@@ -316,6 +316,7 @@ def _sheet_selected_vouchers(wb, selected_vouchers):
 _ORIG_COLS = [
     'Vendor Name', 'Vendor ID', 'Cost Centre', 'Account Code',
     'Invoice Date', 'Voucher Accounting Date',
+    'Payment Due Date', 'Payment Date',
     'Invoice Number', 'Voucher ID', 'Voucher Line Description',
     AMOUNT_COL,
 ]
@@ -334,7 +335,7 @@ _LINE_FLAG_COLS = [
     'is_round_number', 'is_weekend_payment',
     'near_threshold', 'is_individual_payee',
     'same_amount_vendor_irregular', 'is_duplicate', 'is_reversal',
-    'is_split_purchase_risk', 'is_transposed_amount',
+    'is_split_purchase_risk', 'is_transposed_amount', 'is_late_payment',
     'is_recurring_payment', 'benford_flag', 'processing_days',
     'if_anomaly', 'lof_anomaly', 'zscore_anomaly',
 ]
@@ -367,7 +368,12 @@ def _sheet_voucher_line_detail(wb, df_scored, selected_vouchers):
 
     _write_header_row(ws, list(sub.columns))
 
-    date_fmt = {'Invoice Date': 'DD/MM/YYYY', 'Voucher Accounting Date': 'DD/MM/YYYY'}
+    date_fmt = {
+        'Invoice Date': 'DD/MM/YYYY',
+        'Voucher Accounting Date': 'DD/MM/YYYY',
+        'Payment Due Date': 'DD/MM/YYYY',
+        'Payment Date': 'DD/MM/YYYY',
+    }
 
     # Alternate shading by Voucher ID group
     fills = [ALT_FILL, ALT2_FILL]
@@ -485,7 +491,7 @@ def _sheet_all_lines(wb, df_scored):
         'is_round_number', 'is_weekend_payment',
         'near_threshold', 'is_individual_payee',
         'same_amount_vendor_irregular', 'is_duplicate', 'is_reversal',
-        'is_split_purchase_risk', 'is_transposed_amount',
+        'is_split_purchase_risk', 'is_transposed_amount', 'is_late_payment',
         'is_recurring_payment', 'benford_flag', 'processing_days',
         'if_anomaly', 'lof_anomaly', 'zscore_anomaly',
     ] if c in df_scored.columns]
@@ -497,7 +503,12 @@ def _sheet_all_lines(wb, df_scored):
 
     _write_header_row(ws, list(sub.columns))
 
-    date_fmt = {'Invoice Date': 'DD/MM/YYYY', 'Voucher Accounting Date': 'DD/MM/YYYY'}
+    date_fmt = {
+        'Invoice Date': 'DD/MM/YYYY',
+        'Voucher Accounting Date': 'DD/MM/YYYY',
+        'Payment Due Date': 'DD/MM/YYYY',
+        'Payment Date': 'DD/MM/YYYY',
+    }
 
     for r_idx, row_data in enumerate(sub.itertuples(index=False), start=2):
         fill = ALT_FILL if r_idx % 2 == 0 else PatternFill("solid", fgColor="FFFFFF")
@@ -544,7 +555,8 @@ _REVERSALS_NOTE = (
 
 _REVERSALS_HEADERS = [
     'Vendor ID', 'Vendor Name', 'Voucher ID', 'Invoice Number',
-    'Invoice Date', 'Voucher Accounting Date', 'Voucher Line Description',
+    'Invoice Date', 'Voucher Accounting Date', 'Payment Due Date', 'Payment Date',
+    'Voucher Line Description',
     'Amount (SGD)', 'Matched Original Payment (Voucher ID)', 'Match Basis',
 ]
 
@@ -620,7 +632,7 @@ def _sheet_reversals_review(wb, df_scored):
     ws.row_dimensions[1].height = 60
     _write_header_row(ws, headers, row=2)
 
-    date_cols = {'Invoice Date', 'Voucher Accounting Date'}
+    date_cols = {'Invoice Date', 'Voucher Accounting Date', 'Payment Due Date', 'Payment Date'}
     fills = [ALT_FILL, ALT2_FILL]
     fill_idx = 0
     prev_vid = None
@@ -640,7 +652,9 @@ def _sheet_reversals_review(wb, df_scored):
         values = [
             r.get('Vendor ID', ''), r.get('Vendor Name', ''), r.get('Voucher ID', ''),
             r.get('Invoice Number', ''), r.get('Invoice Date', None),
-            r.get('Voucher Accounting Date', None), r.get('Voucher Line Description', ''),
+            r.get('Voucher Accounting Date', None),
+            r.get('Payment Due Date', None), r.get('Payment Date', None),
+            r.get('Voucher Line Description', ''),
             r.get(AMOUNT_COL, None), matched_ids, match_basis,
         ]
         excel_row = i + 3
@@ -681,7 +695,7 @@ _FY_SPLIT_NOTE = (
     "Potential FY Split Purchase — Payments to the same vendor with similar descriptions within "
     "the same fiscal year (1 Apr - 31 Mar), where the combined total exceeds SGD 6,000. This may "
     "indicate procurement splitting to avoid the small value purchase approval threshold. Fiscal "
-    "year is determined by Voucher Accounting Date. Where a payment's description is a unique "
+    "year is determined by Payment Date. Where a payment's description is a unique "
     "reference code rather than descriptive text, it can only be grouped with other payments "
     "carrying the identical reference; vendors whose payments each use a different reference code "
     "will not be grouped and should be reviewed separately. This feature is a review aid only and "
@@ -690,13 +704,15 @@ _FY_SPLIT_NOTE = (
 
 _FY_SPLIT_SOURCE_COLS = [
     'Vendor ID', 'Vendor Name', 'fy_split_fy_label', 'Voucher ID', 'Invoice Number',
-    'Invoice Date', 'Voucher Accounting Date', 'Voucher Line Description',
+    'Invoice Date', 'Voucher Accounting Date', 'Payment Due Date', 'Payment Date',
+    'Voucher Line Description',
     AMOUNT_COL, 'fy_split_group_count', 'fy_split_group_total', 'Account Code', 'Cost Centre',
 ]
 
 _FY_SPLIT_HEADERS = [
     'Vendor ID', 'Vendor Name', 'Fiscal Year', 'Voucher ID', 'Invoice Number',
-    'Invoice Date', 'Voucher Accounting Date', 'Voucher Line Description',
+    'Invoice Date', 'Voucher Accounting Date', 'Payment Due Date', 'Payment Date',
+    'Voucher Line Description',
     'Amount (SGD)', 'No. of Similar Payments in FY', 'Group Total (SGD)',
     'Account Code', 'Cost Centre',
 ]
@@ -721,14 +737,14 @@ def _sheet_fy_split_purchase(wb, df_scored):
         return
 
     fy = fy.sort_values(
-        ['Vendor ID', 'fy_split_fy_label', 'Voucher Accounting Date']
+        ['Vendor ID', 'fy_split_fy_label', 'Payment Date']
     ).reset_index(drop=True)
 
     _amber_note(ws, _FY_SPLIT_NOTE, n_cols, row=1)
     ws.row_dimensions[1].height = 75
     _write_header_row(ws, headers, row=2)
 
-    date_cols = {'Invoice Date', 'Voucher Accounting Date'}
+    date_cols = {'Invoice Date', 'Voucher Accounting Date', 'Payment Due Date', 'Payment Date'}
     amt_cols  = {'Amount (SGD)', 'Group Total (SGD)'}
     fills = [ALT_FILL, ALT2_FILL]
     fill_idx = 0
@@ -947,8 +963,8 @@ def _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats,
     # ---- Dataset overview values ----
     total_amt = float(df_scored[AMOUNT_COL].sum())
     n_vendors = int(df_scored['Vendor ID'].nunique())
-    date_min  = df_scored['Voucher Accounting Date'].min()
-    date_max  = df_scored['Voucher Accounting Date'].max()
+    date_min  = df_scored['Payment Date'].min()
+    date_max  = df_scored['Payment Date'].max()
     period = (
         f"{date_min.strftime('%d/%m/%Y')} to {date_max.strftime('%d/%m/%Y')}"
         if pd.notna(date_min) and pd.notna(date_max) else "N/A"
@@ -996,7 +1012,7 @@ def _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats,
 
     rows = [
         ("DATASET OVERVIEW", None),
-        ("Payment voucher period", period),
+        ("Payment period", period),
         ("Total transaction line items", f"{n_lines:,}"),
         ("Unique payment vouchers", f"{n_vouchers:,}"),
         ("Average lines per voucher", f"{avg_lines:.1f}"),

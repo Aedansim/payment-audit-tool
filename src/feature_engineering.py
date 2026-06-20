@@ -199,7 +199,7 @@ _FY_FILLER_TOKENS = frozenset({
 
 
 def _fy_label(date):
-    """FY label from a Voucher Accounting Date: month >= 4 -> FY{year}, else FY{year-1}."""
+    """FY label from a Payment Date: month >= 4 -> FY{year}, else FY{year-1}."""
     if pd.isna(date):
         return np.nan
     return f"FY{date.year if date.month >= 4 else date.year - 1}"
@@ -252,7 +252,7 @@ def _detect_fy_split_purchase(df, excluded_uens=None):
 
     work = pd.DataFrame({
         '_vid':       df['Vendor ID'],
-        '_fy':        df['Voucher Accounting Date'].apply(_fy_label),
+        '_fy':        df['Payment Date'].apply(_fy_label),
         '_desc_norm': df['Voucher Line Description'].apply(_normalise_fy_desc),
         '_amount':    df[AMOUNT_COL],
     }, index=df.index)
@@ -384,7 +384,7 @@ def engineer_features(df, excluded_uens=None):
 
     print("  Computing processing time features...")
     df['processing_days'] = (
-        df['Voucher Accounting Date'] - df['Invoice Date']
+        df['Payment Date'] - df['Invoice Date']
     ).dt.days
     proc_mean = df['processing_days'].mean()
     proc_std = df['processing_days'].std(ddof=1)
@@ -392,6 +392,11 @@ def engineer_features(df, excluded_uens=None):
         ((df['processing_days'].fillna(proc_mean) - proc_mean) / proc_std).abs()
         if proc_std > 0 else 0.0
     )
+
+    print("  Computing late payment flag...")
+    _late_diff = (df['Payment Date'] - df['Payment Due Date']).dt.days
+    df['days_late'] = _late_diff.clip(lower=0).fillna(0).astype(int)
+    df['is_late_payment'] = (_late_diff.fillna(0) > 0).astype(int)
 
     print("  Computing description length features...")
     df['desc_length'] = df['Voucher Line Description'].astype(str).str.len()
@@ -447,6 +452,7 @@ def engineer_features(df, excluded_uens=None):
         'is_reversal',
         'is_split_purchase_risk',
         'is_transposed_amount',
+        'is_late_payment',
     ]
 
     print("  Checking feature correlations...")

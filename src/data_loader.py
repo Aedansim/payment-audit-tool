@@ -6,6 +6,7 @@ from pathlib import Path
 REQUIRED_COLUMNS = [
     'Vendor Name', 'Vendor ID', 'Cost Centre', 'Account Code',
     'Invoice Date', 'Voucher Accounting Date',
+    'Payment Due Date', 'Payment Date',
     'Invoice Number', 'Voucher ID', 'Voucher Line Description',
     'Payment Voucher Amount (SGD, Excluding GST)',
 ]
@@ -31,7 +32,7 @@ def load_transactions(filepath):
     print(f"  Loading '{path.name}'...")
     # Read headers first so we can build a dtype dict that keeps date columns
     # as native types — avoids Excel date serial numbers becoming strings.
-    _date_cols = {'Invoice Date', 'Voucher Accounting Date'}
+    _date_cols = {'Invoice Date', 'Voucher Accounting Date', 'Payment Due Date', 'Payment Date'}
     _header_cols = pd.read_excel(filepath, nrows=0).columns.tolist()
     _dtype_dict = {c: str for c in _header_cols if c not in _date_cols}
     df = pd.read_excel(filepath, dtype=_dtype_dict)
@@ -43,7 +44,7 @@ def load_transactions(filepath):
             "\n\n  Columns found in your file:\n    " + "\n    ".join(df.columns.tolist())
         )
 
-    for col in ['Invoice Date', 'Voucher Accounting Date']:
+    for col in ['Invoice Date', 'Voucher Accounting Date', 'Payment Due Date', 'Payment Date']:
         df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce')
 
     df[AMOUNT_COL] = (

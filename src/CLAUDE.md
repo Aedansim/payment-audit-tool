@@ -31,14 +31,14 @@ Single-line vouchers: `voucher_score = risk_score` exactly.
 
 **Amount z-scores on absolute value:** `amount_zscore_vendor` and `amount_zscore_costcentre` are computed via `_group_zscore(df[AMOUNT_COL].abs(), df['<group>'])` — the helper now takes value/group **Series** (not column names). Reversals are assessed by magnitude, not flagged for sign. Displayed `AMOUNT_COL` stays signed everywhere; only the z-score transform uses `.abs()` (as `amount_log` already does).
 
-**FY split purchase detection** (`_detect_fy_split_purchase`): flags positive-amount rows in a `(Vendor ID, fiscal-year, normalised-description)` group of 2+ payments whose positive total > `_FY_SPLIT_THRESHOLD` (SGD 6,000). FY = 1 Apr–31 Mar from **Voucher Accounting Date** (`_fy_label`). Description key (`_normalise_fy_desc`): lowercase/strip → drop digits → punctuation→space → drop whole-token month names (`_FY_MONTH_TOKENS`) and filler words (`_FY_FILLER_TOKENS`) → collapse. Fallback (g): when the cleaned key is blank OR has no token ≥ 3 letters (e.g. `PO-4471-22` → `po`), use the full original reference (digits/punctuation kept) so distinct reference codes are NOT merged. Returns 4 columns `(is_fy_split_purchase, fy_split_group_total, fy_split_group_count, fy_split_fy_label)`. **Deliberately excluded from `ml_features` AND `FLAG_COLS`** — review aid only, does not influence the composite score (recurring legitimate payments would otherwise false-positive). Surfaced via reason code, the Excel "FY Split Purchase" tab, and a Word report subsection. Accepts `excluded_uens` (from `engineer_features(df, excluded_uens)`): rows whose `Vendor ID` is in the Excluded vendors set are dropped before grouping — never flagged, never contributing to a group total/count.
+**FY split purchase detection** (`_detect_fy_split_purchase`): flags positive-amount rows in a `(Vendor ID, fiscal-year, normalised-description)` group of 2+ payments whose positive total > `_FY_SPLIT_THRESHOLD` (SGD 6,000). FY = 1 Apr–31 Mar from **Payment Date** (`_fy_label`). Description key (`_normalise_fy_desc`): lowercase/strip → drop digits → punctuation→space → drop whole-token month names (`_FY_MONTH_TOKENS`) and filler words (`_FY_FILLER_TOKENS`) → collapse. Fallback (g): when the cleaned key is blank OR has no token ≥ 3 letters (e.g. `PO-4471-22` → `po`), use the full original reference (digits/punctuation kept) so distinct reference codes are NOT merged. Returns 4 columns `(is_fy_split_purchase, fy_split_group_total, fy_split_group_count, fy_split_fy_label)`. **Deliberately excluded from `ml_features` AND `FLAG_COLS`** — review aid only, does not influence the composite score (recurring legitimate payments would otherwise false-positive). Surfaced via reason code, the Excel "FY Split Purchase" tab, and a Word report subsection. Accepts `excluded_uens` (from `engineer_features(df, excluded_uens)`): rows whose `Vendor ID` is in the Excluded vendors set are dropped before grouping — never flagged, never contributing to a group total/count.
 
 **Removed features (do not restore):**
 - `amount_zscore_overall`, `amount_zscore_account` — removed April 2026, never used in scoring, reason codes, or ML.
 - `is_month_end` — removed; benchmark no longer injects month-end anomalies.
 - Dead `amount_zscore_overall` fallback branch in `ml_models.py` — removed April 2026.
 
-**Date loading** (`data_loader.load_transactions`): two-pass Excel read — header-only pass then full read with `dtype=str` for all columns *except* `Invoice Date` and `Voucher Accounting Date` (excluded so openpyxl returns proper `datetime` objects). `pd.to_datetime(dayfirst=True, errors='coerce')` loop still runs after for text-stored dates. Do NOT revert to single `pd.read_excel(dtype=str)` — reintroduces serial-number NaT bug.
+**Date loading** (`data_loader.load_transactions`): two-pass Excel read — header-only pass then full read with `dtype=str` for all columns *except* `Invoice Date`, `Voucher Accounting Date`, `Payment Due Date`, and `Payment Date` (excluded so openpyxl returns proper `datetime` objects). `pd.to_datetime(dayfirst=True, errors='coerce')` loop still runs after for text-stored dates. Do NOT revert to single `pd.read_excel(dtype=str)` — reintroduces serial-number NaT bug.
 
 **Period display (STEP 2 notebook):** creates `_preview` copy with `.dt.strftime('%d/%m/%Y').fillna('')` for display only. Underlying `df_raw` retains `datetime64` throughout for feature arithmetic.
 
@@ -48,7 +48,7 @@ Single-line vouchers: `voucher_score = risk_score` exactly.
 
 **Binary anomaly flags:** `if_anomaly` (IsolationForest.predict() == -1, top 5%), `lof_anomaly` (LOF.fit_predict() == -1, top 5%), `zscore_anomaly` (max absolute z-score > 2.0). Used for `ML_Consensus_Flag` display only — not part of `risk_score` formula.
 
-**Feature overlap (intentional):** `amount_zscore_vendor` and `amount_zscore_costcentre` feed both the Z-score component (25%) and the IF/LOF feature matrices. The 9 rule flags feed both `rule_flags_score` (15%) and the IF/LOF matrices. This is Caveat 7 in the Word report — not a design flaw.
+**Feature overlap (intentional):** `amount_zscore_vendor` and `amount_zscore_costcentre` feed both the Z-score component (25%) and the IF/LOF feature matrices. The 10 rule flags feed both `rule_flags_score` (15%) and the IF/LOF matrices. This is Caveat 7 in the Word report — not a design flaw.
 
 ### Sample selector (`sample_selector.py`)
 
@@ -76,11 +76,15 @@ Single-line vouchers: `voucher_score = risk_score` exactly.
 
 **Reason codes:** single-line vouchers = plain text. Multi-line vouchers = prefixed with `[Account Code]`. IF and LOF anomaly reasons appended unconditionally when `if_anomaly==1` or `lof_anomaly==1`. Final fallback `"Elevated composite risk score"` only when no signal triggered. Vendor-capped vouchers get `" | NOTE FOR AUDITOR: ..."` suffix.
 
-## Rule flags (9 total — FLAG_COLS)
+## Rule flags (10 total — FLAG_COLS)
 
-`is_round_number`, `is_weekend_payment`, `near_threshold`, `is_individual_payee`, `same_amount_vendor_irregular`, `is_duplicate`, `is_reversal`, `is_split_purchase_risk`, `is_transposed_amount`
+`is_round_number`, `is_weekend_payment`, `near_threshold`, `is_individual_payee`, `same_amount_vendor_irregular`, `is_duplicate`, `is_reversal`, `is_split_purchase_risk`, `is_transposed_amount`, `is_late_payment`
 
-Both `_rule_flags_score()` and `flag_density` in `_rollup_vouchers()` divide by `len(present)` — never a hardcoded number. All references in `report_generator.py` and `make_scoring_reference.py` use "9 rules / ÷9". The Methodology page worked example reads `"2 rules triggered = 2/9 = 0.22"` — do not revert to 2/10 or 2/8.
+`is_late_payment` fires when `Payment Date > Payment Due Date` (NaT in either column → 0). `days_late = (Payment Date - Payment Due Date).dt.days.clip(lower=0)` is kept alongside it solely for the reason-code text and is NOT in `ml_features`.
+
+`is_weekend_payment` is still derived from **Voucher Accounting Date** (the date the payment voucher was raised) — not Payment Date.
+
+Both `_rule_flags_score()` and `flag_density` in `_rollup_vouchers()` divide by `len(present)` — never a hardcoded number. All references in `report_generator.py` and `make_scoring_reference.py` use "10 rules / ÷10". The Methodology page worked example reads `"2 rules triggered = 2/10 = 0.20"` — do not revert to 2/9.
 
 ## ML Consensus Flag
 

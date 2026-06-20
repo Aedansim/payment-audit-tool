@@ -1,8 +1,11 @@
 """
 Accuracy benchmark for the Payment Audit Tool.
-Generates 530 synthetic transactions (500 normal + 30 injected anomalies, 5 per type)
-and measures how many anomalies are recovered in the top-25 invoice selection.
+Generates 530 synthetic transactions (500 normal + 30 injected anomalies, 5 per type
+across 6 anomaly types) and measures how many anomalies are recovered in the top-25
+invoice selection.
 """
+# Anomaly types: individual_payee, near_threshold, round_number, high_amount,
+# weekend_date (Voucher Accounting Date on Saturday), late_payment (Payment Date past Payment Due Date).
 import sys, warnings, io
 sys.path.insert(0, '.')
 warnings.filterwarnings('ignore')
@@ -25,6 +28,7 @@ ANOMALY_TYPES = [
     'round_number',
     'high_amount',
     'weekend_date',
+    'late_payment',
 ]
 
 VENDORS = [f"VENDOR_{i:03d}" for i in range(1, 51)]
@@ -60,9 +64,16 @@ def _random_workday(start='2023-01-01', end='2024-12-31'):
     return _workday(d)
 
 
-def _build_row(i, vendor_idx, amount, invoice_date, anomaly_type=None, voucher_date=None):
+def _build_row(i, vendor_idx, amount, invoice_date, anomaly_type=None,
+               voucher_date=None, payment_date=None, payment_due_date=None):
     inv_date = pd.Timestamp(invoice_date)
     acc_date = pd.Timestamp(voucher_date) if voucher_date is not None else inv_date + pd.Timedelta(days=int(RNG.integers(1, 15)))
+    due_date = pd.Timestamp(payment_due_date) if payment_due_date is not None else inv_date + pd.Timedelta(days=30)
+    if payment_date is not None:
+        pay_date = pd.Timestamp(payment_date)
+    else:
+        # Normal payments land on or slightly before the due date.
+        pay_date = due_date - pd.Timedelta(days=int(RNG.integers(0, 8)))
     vendor_name = VENDORS[vendor_idx]
     vendor_id   = VENDOR_IDS[vendor_idx]
 
@@ -78,6 +89,8 @@ def _build_row(i, vendor_idx, amount, invoice_date, anomaly_type=None, voucher_d
         'Account Code':              ACCOUNT_CODES[vendor_idx % len(ACCOUNT_CODES)],
         'Invoice Date':              inv_date,
         'Voucher Accounting Date':   acc_date,
+        'Payment Due Date':          due_date,
+        'Payment Date':              pay_date,
         'Invoice Number':            f"INV{i:05d}",
         'Voucher ID':                f"VCH{i:05d}",
         'Voucher Line Description':  f"Payment for services rendered - ref {i}",
@@ -137,10 +150,24 @@ def generate_dataset():
         amount = _make_normal_amount()
         # Pass d as voucher_date so Voucher Accounting Date falls on Saturday (the flagged field)
         rows.append(_build_row(base + j, j + 4, amount, inv_date, 'weekend_date', voucher_date=d))
+    base += N_ANOMALY
+
+    # --- Anomaly 6: late payment (Payment Date past Payment Due Date) ---
+    for j in range(N_ANOMALY):
+        inv_date = _random_workday()
+        amount = _make_normal_amount()
+        due_date = pd.Timestamp(inv_date) + pd.Timedelta(days=30)
+        late_pay = due_date + pd.Timedelta(days=int(RNG.integers(15, 90)))
+        rows.append(_build_row(
+            base + j, j + 5, amount, inv_date, 'late_payment',
+            payment_date=late_pay, payment_due_date=due_date,
+        ))
 
     df = pd.DataFrame(rows).reset_index(drop=True)
     df['Invoice Date']            = pd.to_datetime(df['Invoice Date'])
     df['Voucher Accounting Date'] = pd.to_datetime(df['Voucher Accounting Date'])
+    df['Payment Due Date']        = pd.to_datetime(df['Payment Due Date'])
+    df['Payment Date']            = pd.to_datetime(df['Payment Date'])
     return df
 
 

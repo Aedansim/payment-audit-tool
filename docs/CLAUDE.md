@@ -13,7 +13,7 @@ python benchmark_comparison.py          # compare two pipeline configs side-by-s
 
 ## Benchmark setup
 
-525 synthetic transactions (500 normal + 25 injected anomalies, 5 per anomaly type), each as its own single-line voucher. Scores at voucher level. `is_month_end` removed — benchmark no longer injects month-end anomalies. `weekend_date` anomalies use `Voucher Accounting Date` on Saturday (matches production flag).
+530 synthetic transactions (500 normal + 30 injected anomalies, 5 per anomaly type across 6 types: `individual_payee`, `near_threshold`, `round_number`, `high_amount`, `weekend_date`, `late_payment`), each as its own single-line voucher. Scores at voucher level. `is_month_end` removed — benchmark no longer injects month-end anomalies. `weekend_date` anomalies use `Voucher Accounting Date` on Saturday (matches production flag — still driven by VAD even though `processing_days` and FY-split now use `Payment Date`). `late_payment` anomalies set `Payment Date = Payment Due Date + 15–90 days`.
 
 ## Current results — May 2026 (14 amendments applied)
 

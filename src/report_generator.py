@@ -333,8 +333,8 @@ def _page2(doc, excluded_count=0):
     p.alignment = WD_ALIGN_PARAGRAPH.LEFT
     doc.add_paragraph()
     _body(doc,
-          "The rule flags score is the fraction of the 9 binary rules triggered for that line "
-          "(e.g. 2 rules triggered = 2/9 = 0.22). The Benford score is normalised relative to "
+          "The rule flags score is the fraction of the 10 binary rules triggered for that line "
+          "(e.g. 2 rules triggered = 2/10 = 0.20). The Benford score is normalised relative to "
           "the maximum Benford deviation in the dataset. The Z-score signal is the larger of the "
           "vendor z-score and cost centre z-score, min-max normalised to [0, 1] across all lines.",
           size=10)
@@ -599,10 +599,17 @@ ML_FEATURE_TABLE_DATA = [
     ),
     (
         "Processing time",
-        "Number of calendar days between Invoice Date and Voucher Accounting Date.",
+        "Number of calendar days between Invoice Date and Payment Date.",
         "Absolute z-score > 2.5",
         "IF, LOF",
         "Very fast processing may indicate bypassed controls; unusually long delays may indicate backdating.",
+    ),
+    (
+        "Late payment",
+        "Whether the Payment Date falls after the Payment Due Date.",
+        "Payment Date > Payment Due Date",
+        "IF, LOF",
+        "Late payments may indicate stale or unauthorised approvals, vendor disputes, or attempts to push expense recognition into a different period.",
     ),
     (
         "Description length",
@@ -738,9 +745,9 @@ def _page6_feature_table(doc):
 
     _heading(doc, "Features Used in Machine Learning Models", level=2)
     _body(doc,
-          "The sixteen features below are candidates for the ML models in each run. Before fitting, "
+          "The seventeen features below are candidates for the ML models in each run. Before fitting, "
           "Spearman correlation pruning removes one of any pair with |correlation| > 0.85, so the "
-          "active feature set may be smaller than sixteen depending on the dataset. Surviving features "
+          "active feature set may be smaller than seventeen depending on the dataset. Surviving features "
           "are normalised via RobustScaler before being fed into the models. Amount z-scores "
           "additionally drive the Statistical Z-Score component directly.",
           size=9)

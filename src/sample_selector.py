@@ -26,6 +26,7 @@ FLAG_COLS = [
     'is_reversal',
     'is_split_purchase_risk',
     'is_transposed_amount',
+    'is_late_payment',
 ]
 
 
@@ -126,6 +127,11 @@ def _build_reason(row):
         days = row.get('processing_days', None)
         day_str = f" ({int(days)} days)" if days is not None and not pd.isna(days) else ""
         parts.append(f"Unusual processing time{day_str}")
+
+    if row.get('is_late_payment', 0):
+        d = row.get('days_late', None)
+        day_str = f" ({int(d)} days late)" if d is not None and not pd.isna(d) and d > 0 else ""
+        parts.append(f"Late payment — Payment Date after Payment Due Date{day_str}")
 
     if row.get('desc_length_zscore', 0) > 2.5:
         parts.append("Unusual description length")

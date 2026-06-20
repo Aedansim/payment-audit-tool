@@ -39,14 +39,16 @@ Orchestrated by `Payment_Audit_Tool.ipynb`. Notebook step order: STEP 0 = config
 | `excel_exporter` | `export_excel(df_scored, df_vouchers, selected_vouchers, summary, stats, path, excluded=None)` |
 | `report_generator` | `export_word_report(df_scored, df_vouchers, selected_vouchers, stats, path, excluded_count=0)` |
 
-## Required input columns (10 — raises ValueError if any missing)
+## Required input columns (12 — raises ValueError if any missing)
 
-`Vendor Name`, `Vendor ID`, `Cost Centre`, `Account Code`, `Invoice Date`, `Voucher Accounting Date`, `Invoice Number`, `Voucher ID`, `Voucher Line Description`, `Payment Voucher Amount (SGD, Excluding GST)`
+`Vendor Name`, `Vendor ID`, `Cost Centre`, `Account Code`, `Invoice Date`, `Voucher Accounting Date`, `Payment Due Date`, `Payment Date`, `Invoice Number`, `Voucher ID`, `Voucher Line Description`, `Payment Voucher Amount (SGD, Excluding GST)`
+
+`Payment Date` is the actual date of payment and drives `processing_days`, the FY-split fiscal-year label, and the Summary tab's Payment Period. `Payment Due Date` drives the `is_late_payment` rule flag (Payment Date > Payment Due Date). `Voucher Accounting Date` is still required because it drives `is_weekend_payment` (the date the voucher was raised). Any other new columns in the input file are ignored.
 
 ## Critical constants
 
 - **`AMOUNT_COL`** = `'Payment Voucher Amount (SGD, Excluding GST)'` — always use the constant, never the literal string.
-- **`FLAG_COLS`** = 9 rule-based flags (after `is_month_end` removal). Denominator in `_rule_flags_score` and `flag_density` is always `len(present)` — never hardcoded.
+- **`FLAG_COLS`** = 10 rule-based flags. Denominator in `_rule_flags_score` and `flag_density` is always `len(present)` — never hardcoded.
 - **`WEIGHTS`** defined in `sample_selector.WEIGHTS` — overridable from notebook before calling `select_samples()`.
 
 ## Git discipline
