@@ -281,7 +281,7 @@ def _page2(doc, excluded_count=0):
 
     _heading(doc, "5. Rule-Based Flags", level=2)
     _body(doc,
-          "Nine binary rules derived from established forensic audit practice. Each triggers a "
+          "Ten binary rules derived from established forensic audit practice. Each triggers a "
           "flag (1) or not (0) per transaction line:",
           size=10)
     rules = [
@@ -313,6 +313,9 @@ def _page2(doc, excluded_count=0):
         "with the same description by exactly one pair of transposed digits in the whole-dollar "
         "portion of the amount, with cents ignored (e.g. SGD 4,800 vs SGD 8,400). May indicate a "
         "keying error resulting in significant over- or under-payment if left undetected.",
+        "Late payment — the payment date falls after the payment due date. Late payments may "
+        "indicate stale or unauthorised approvals, vendor disputes, or attempts to push expense "
+        "recognition into a different period.",
     ]
     for rule in rules:
         _bullet(doc, rule, size=10)
@@ -422,7 +425,7 @@ def _page2(doc, excluded_count=0):
     doc.add_paragraph()
     _body(doc,
           "Flag density = total rule flags triggered across all lines in the voucher ÷ "
-          "(9 flag types × number of lines). The 60/25/15 split reflects that audit significance "
+          "(10 flag types × number of lines). The 60/25/15 split reflects that audit significance "
           "is primarily driven by the worst line in the voucher, moderated by whether other lines "
           "are also elevated, and supplemented by the breadth of rule flag coverage. For multi-line "
           "vouchers, reason codes in the output are prefixed with [Account Code] so auditors can "
@@ -465,8 +468,8 @@ def _page2(doc, excluded_count=0):
           "removes numbers and punctuation so that payments of the same general nature are grouped "
           "together regardless of invoice-specific detail). Where the positive-amount total of such a "
           "group exceeds SGD 6,000, every positive-amount transaction in the group is identified as a "
-          "potential fiscal year split purchase. The fiscal year is determined using the Voucher "
-          "Accounting Date. Where a payment's description consists of a structured reference code "
+          "potential fiscal year split purchase. The fiscal year is determined using the Payment "
+          "Date. Where a payment's description consists of a structured reference code "
           "rather than descriptive text (for example a document or contract reference), the full "
           "reference is retained as the grouping key so the payment is not excluded from the check; "
           "in such cases payments are grouped only where they share the identical reference. A "
