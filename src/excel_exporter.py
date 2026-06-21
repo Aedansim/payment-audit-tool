@@ -248,6 +248,51 @@ def _chart_top_vendors(df):
     return _to_image(fig)
 
 
+def _chart_late_payment_proportion(df):
+    late_mask = df.get('is_late_payment', pd.Series(0, index=df.index)) == 1
+    n_late    = int(late_mask.sum())
+    n_ontime  = len(df) - n_late
+
+    fig, ax = plt.subplots(figsize=(5.5, 4.0))
+    if n_late == 0:
+        ax.pie([1], labels=['On-time'], colors=[_HEX['blue']],
+               autopct='%1.1f%%', startangle=90,
+               textprops={'fontsize': 9})
+    else:
+        ax.pie([n_late, n_ontime],
+               labels=[f'Late ({n_late:,})', f'On-time ({n_ontime:,})'],
+               colors=[_HEX['red'], _HEX['blue']],
+               autopct='%1.1f%%', startangle=90,
+               explode=(0.06, 0), textprops={'fontsize': 9})
+    ax.axis('equal')
+    ax.set_title('Late vs On-Time Payments',
+                 fontsize=11, fontweight='bold', color=_HEX['navy'])
+    fig.tight_layout()
+    return _to_image(fig)
+
+
+def _chart_days_late_distribution(df):
+    late_mask = df.get('is_late_payment', pd.Series(0, index=df.index)) == 1
+    days_late = df.loc[late_mask, 'days_late'].dropna() if 'days_late' in df.columns \
+        else pd.Series(dtype=float)
+
+    fig, ax = plt.subplots(figsize=(5.5, 4.0))
+    if len(days_late) == 0:
+        ax.text(0.5, 0.5, 'No late payments in this dataset',
+                ha='center', va='center', fontsize=11, color=_HEX['navy'],
+                transform=ax.transAxes)
+        ax.axis('off')
+    else:
+        ax.hist(days_late, bins=40, color=_HEX['red'], alpha=0.80, edgecolor='white')
+        ax.set_xlabel('Days Late')
+        ax.set_ylabel('Number of Payments')
+        ax.grid(axis='y', alpha=0.3)
+    ax.set_title('Distribution of Payment Lateness (Days)',
+                 fontsize=11, fontweight='bold', color=_HEX['navy'])
+    fig.tight_layout()
+    return _to_image(fig)
+
+
 # ---------------------------------------------------------------------------
 # Sheet 1 — Selected Vouchers
 # ---------------------------------------------------------------------------
@@ -1000,6 +1045,12 @@ def _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats,
     n_reversals = int(rev_mask.sum())
     abs_rev_tot = float(df_scored.loc[rev_mask, AMOUNT_COL].abs().sum()) if n_reversals else 0.0
 
+    late_mask  = df_scored.get('is_late_payment', pd.Series(0, index=df_scored.index)) == 1
+    n_late     = int(late_mask.sum())
+    amt_late   = float(df_scored.loc[late_mask, AMOUNT_COL].sum()) if n_late else 0.0
+    pct_late_n = (n_late / n_lines * 100) if n_lines else 0.0
+    pct_late_a = (amt_late / total_amt * 100) if total_amt else 0.0
+
     fy_mask      = df_scored.get('is_fy_split_purchase', pd.Series(0, index=df_scored.index)) == 1
     n_fy_flagged = int(fy_mask.sum())
     if n_fy_flagged and {'fy_split_fy_label', 'fy_split_group_total'} <= set(df_scored.columns):
@@ -1042,6 +1093,9 @@ def _sheet_summary(wb, df_scored, df_vouchers, selected_vouchers, benford_stats,
         ("Local outlier anomalies (top 5% boundary)", f"{n_lof_high:,} transaction line(s)"),
         ("Statistical z-score outliers", f"{n_z_high:,} transaction line(s)"),
         ("Rule-based flags triggered", f"{n_rule:,} transaction line(s)"),
+        ("Late payments (Payment Date > due date)",
+         f"{n_late:,} line(s), {pct_late_n:.1f}% of lines "
+         f"(SGD {amt_late:,.2f}, {pct_late_a:.1f}% of total value)"),
         ("Potential duplicate payments", f"{n_dup_vch:,} voucher(s) (SGD {amt_dup:,.2f})"),
         ("Split purchase risk", f"{n_split_vch:,} voucher(s) (SGD {amt_split:,.2f})"),
         ("Reversal / credit note transactions", f"{n_reversals:,} (SGD {abs_rev_tot:,.2f})"),
@@ -1164,6 +1218,12 @@ def _sheet_analytical_charts(wb, df_scored, df_vouchers, selected_vouchers, benf
         ("Monthly Payment Timeline",
          "Monthly total payment value (bars, left axis) and transaction count (line, right axis).",
          _chart_timeline(df_scored), 28),
+        ("Late vs On-Time Payments",
+         "Proportion of transaction lines paid after their Payment Due Date versus on or before it.",
+         _chart_late_payment_proportion(df_scored), 32),
+        ("Distribution of Payment Lateness",
+         "How late the late payments are — histogram of days between Payment Due Date and Payment Date.",
+         _chart_days_late_distribution(df_scored), 32),
         ("Top 10 Vendors",
          "Top 10 vendors by transaction count (left) and by total payment value (right).",
          _chart_top_vendors(df_scored), 34),
