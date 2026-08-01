@@ -12,6 +12,10 @@ REQUIRED_COLUMNS = [
 ]
 AMOUNT_COL = 'Payment Voucher Amount (SGD, Excluding GST)'
 
+# Optional columns: loaded and carried through if present, created blank if absent.
+# Display/reference only — never enter ml_features or any scoring computation.
+OPTIONAL_COLUMNS = ['Account Description']
+
 # uens: set of excluded Vendor IDs (UENs); names: uen -> entity_name (display only).
 ExcludedVendors = namedtuple('ExcludedVendors', ['uens', 'names'])
 
@@ -43,6 +47,14 @@ def load_transactions(filepath):
             "\n  Missing required columns:\n    " + "\n    ".join(missing) +
             "\n\n  Columns found in your file:\n    " + "\n    ".join(df.columns.tolist())
         )
+
+    # Optional descriptive columns — retained if present, blank if absent, so
+    # downstream display code can rely on the column always existing.
+    for col in OPTIONAL_COLUMNS:
+        if col in df.columns:
+            df[col] = df[col].fillna('').astype(str).str.strip()
+        else:
+            df[col] = ''
 
     for col in ['Invoice Date', 'Voucher Accounting Date', 'Payment Due Date', 'Payment Date']:
         df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce')
