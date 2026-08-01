@@ -54,6 +54,8 @@ Single-line vouchers: `voucher_score = risk_score` exactly.
 
 **Two-level scoring:** all scoring runs at line level → lines grouped by `Voucher ID` for audit unit. `Voucher ID` is system-generated and always present. `Invoice Number` → display field `Invoice Number(s)`. `Voucher Line Description` → `Voucher Line Description(s)` (unique non-blank values, pipe-separated).
 
+**`Account Description` passthrough:** optional input column (see root `CLAUDE.md`). `engineer_features()` never subsets columns, so it survives into `df_scored` untouched; `_rollup_vouchers()` carries a representative value to voucher level from `top_line` (the highest-scoring line), alongside `Vendor Name`. Deliberately outside `ml_features` and `FLAG_COLS` — it is display/reference data and must never influence a score. Verified score-neutral against `benchmark.py` (identical recall/precision/Cohen's d before and after).
+
 **Voucher Line Description rollup** (`_rollup_vouchers`): use list comprehension with `pd.notna()` guard. Do NOT use `.astype(str).str.strip().pipe(...isin...)` — `Series.unique()` can return float NaN that bypasses `.isin(['nan'])` and breaks `str.join()`.
 
 **Benford suppression rule** (`compute_risk_scores`): if IF, LOF, z-score, and rule-flag scores are all below dataset medians → Benford contribution zeroed (cannot be selected on Benford evidence alone).

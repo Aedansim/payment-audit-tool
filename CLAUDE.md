@@ -1,6 +1,6 @@
 # Payment Audit Tool — CLAUDE.md
 
-Python-based payment audit pipeline that scores transactions using ML ensemble + Benford's Law + rule flags, selects a stratified audit sample, and exports to Excel + Word.
+Python-based payment audit pipeline that scores transactions using ML ensemble + Benford's Law + rule flags, selects a stratified audit sample, and exports to Excel + Word + PDF.
 
 ## Quick commands
 
@@ -23,6 +23,7 @@ select_samples(df, n_samples, excluded_uens)  → df_scored, df_vouchers, select
     ↓
 export_excel()          — 10-tab openpyxl workbook (charts embedded as matplotlib images)
 export_word_report()    — 4-page python-docx methodology report (no charts; data moved to Excel)
+export_pdf_dashboard()  — 9-page landscape-A4 PDF, charts only (matplotlib PdfPages)
 ```
 
 Orchestrated by `Payment_Audit_Tool.ipynb`. Notebook step order: STEP 0 = config (INPUT_FILE, SAMPLE_SIZE, WEIGHTS), STEP 1 = package install.
@@ -38,12 +39,17 @@ Orchestrated by `Payment_Audit_Tool.ipynb`. Notebook step order: STEP 0 = config
 | `sample_selector` | `select_samples(df, n_samples, excluded_uens=None) → (df_scored, df_vouchers, selected_vouchers)` |
 | `excel_exporter` | `export_excel(df_scored, df_vouchers, selected_vouchers, summary, stats, path, excluded=None)` |
 | `report_generator` | `export_word_report(df_scored, df_vouchers, selected_vouchers, stats, path, excluded_count=0)` |
+| `pdf_dashboard_generator` | `export_pdf_dashboard(df_scored, df_vouchers, selected_vouchers, benford_stats, excluded, meta, output_path)` |
 
 ## Required input columns (12 — raises ValueError if any missing)
 
 `Vendor Name`, `Vendor ID`, `Cost Centre`, `Account Code`, `Invoice Date`, `Voucher Accounting Date`, `Payment Due Date`, `Payment Date`, `Invoice Number`, `Voucher ID`, `Voucher Line Description`, `Payment Voucher Amount (SGD, Excluding GST)`
 
 `Payment Date` is the actual date of payment and drives `processing_days`, the FY-split fiscal-year label, and the Summary tab's Payment Period. `Payment Due Date` drives the `is_late_payment` rule flag (Payment Date > Payment Due Date). `Voucher Accounting Date` is still required because it drives `is_weekend_payment` (the date the voucher was raised). Any other new columns in the input file are ignored.
+
+## Optional input columns (`data_loader.OPTIONAL_COLUMNS`)
+
+`Account Description` — the spend category. Loaded and carried through `df_scored` and the voucher rollup if present; created as an empty string if absent, so downstream code can always assume the column exists. **Display/reference only** — never in `ml_features`, `FLAG_COLS`, or any scoring computation. Consumed by the PDF dashboard's spend-categories page; deliberately not surfaced in the Excel workbook.
 
 ## Critical constants
 

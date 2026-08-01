@@ -1,6 +1,6 @@
-# src/outputs/ — Excel & Word Report Reference
+# src/outputs/ — Excel, Word & PDF Output Reference
 
-Read this when editing `excel_exporter.py` or `report_generator.py`.
+Read this when editing `excel_exporter.py`, `report_generator.py`, or `pdf_dashboard_generator.py`.
 
 ## Excel workbook — 10-tab structure (`excel_exporter.py`)
 
@@ -33,6 +33,38 @@ The Word report is now a **methodology document**. The dataset overview, summary
 | 2 | Portrait | **Executive Summary** — opening paragraph (composite risk score, stratification, diversity controls, professional-judgement caveat; does NOT name the exclusion list, Jaccard threshold, or vendor cap) + a pointer paragraph directing the reader to the Excel Summary and Analytical Charts tabs for the dataset overview, summary of findings, and charts + closing paragraph (reason codes, line-to-voucher rollup, Excel tab pointers). No dataset-overview table or findings bullets here anymore. |
 | 3 | Portrait | **Methodology** — audit-grade standalone. Stage 1 feature engineering; Stage 2 five analytical methods with caveats; Stage 3 exact line-level formula + weight rationale table; Benford suppression rule; Stage 4 voucher rollup formula; ML consensus flag; "Potential Fiscal Year Split Purchases" subsection (review aid, NOT scored); "Risk Tier Assignment and Sample Selection" subsection (percentile cutoffs, stratified draw, similarity deduplication, vendor cap, **file-driven Excluded vendors de-prioritisation** with dynamic count via `excluded_count` parameter). `_page2()` accepts `excluded_count`; `export_word_report(..., excluded_count)` is passed `len(excluded.uens)` from the notebook. |
 | 4 | Landscape | **Feature Reference Table** — two tables, 5 columns each: Feature, What It Measures, Threshold for Flagging, ML Models, Why It Matters. Column widths: 1.6/2.1/1.8/1.2/3.8 inches. Table 1 ("Features Used in ML Models"): 17 rows including a "Late payment" row (Payment Date > Payment Due Date); ML Models = "IF, LOF, Z-score" for z-score features, "IF, LOF" for others; intro notes Spearman pruning may reduce active count. Table 2 ("Features Outside ML Models"): 1 row for Benford's Law. Rendered via `_render_feature_table()`. References footer: Nigrini (2012) and ACFE Fraud Examiners Manual only. |
+
+## PDF dashboard — 9-page structure (`pdf_dashboard_generator.py`)
+
+Read-only, charts-only visual companion to the Excel workbook, written to `output/audit_dashboard.pdf`. Landscape A4 (11.69 × 8.27 in), one `PdfPages` handle, one matplotlib figure per page.
+
+**Privacy posture — do not weaken:** PDF is chosen because it is inert (cannot run scripts or make network requests). Build with matplotlib Agg + `PdfPages` **only** — no `reportlab`, no new dependency, no network access, matplotlib's built-in fonts only. Nothing here may alter a score, flag, weight, rollup, tier, or selection result.
+
+| Page | Content | Source |
+|---|---|---|
+| 1 | Cover title + 4×2 grid of bordered metric cards (dataset, Payment Period, generated, sample size, transactions, vouchers, vendors, total SGD) | `meta`, with every key falling back to a value derived from the dataframes |
+| 2 | Risk tier donut, counts + % in the legend, total in the hole | `df_vouchers['voucher_risk_tier']` |
+| 3 | `voucher_score` histogram with dashed 80th/95th percentile boundary markers | recomputed via `.quantile()` from the same column `_assign_risk_tier` uses, so markers cannot drift from tiers |
+| 4 | Reason-code frequency bars across the selected samples | `_tally_reason_codes()` |
+| 5 | Benford observed-vs-expected grouped bars + a stats/interpretation panel | `benford_stats` |
+| 6 | Vendor risk concentration — `barh` shaded by a `YlOrRd` colormap + colourbar, top 20 by summed `voucher_score` | `df_vouchers` grouped by `Vendor Name` |
+| 7 | Top 15 vendors by positive spend | `df_scored` |
+| 8 | Top 15 `Account Description` values by positive spend | `df_scored`; missing **or entirely blank** → "Account Description not available in this dataset." |
+| 9 | Potential-duplicate big-number callouts (count, total SGD, how many are in the sample) | `df_vouchers` reason codes containing "Potential duplicate payment" |
+
+**Split purchases and reversals appear nowhere in the PDF** — deliberate; they stay in their Excel review tabs.
+
+**Page 9 counts are dataset-wide**, not sample-only; the third card reports the sample overlap.
+
+**Every page degrades gracefully:** empty or missing input renders a centred message via `_message_page()` instead of an empty or broken chart. The page count is always 9.
+
+**Layout constants:** the content band is `_C_BOTTOM`/`_C_HEIGHT` (top fixed at 0.840). The bottom must clear the axis label, which sits *below* the axes — lowering `_C_BOTTOM` makes xlabels collide with the caption line. Pages passing an explicit rect must reuse these constants, not literals.
+
+**Palette:** navy `#1F3864` titles, tiers HIGH `#C00000` / MEDIUM `#FF8C00` / LOW `#375623`, grey `#8C8C8C` footer, card fill `#F7F9FC`. Money always `SGD 1,234.56` (`_fmt_sgd`), dates always DD/MM/YYYY (`_fmt_date`). Bars carry value labels so charts stay readable in greyscale.
+
+**Reason-code parser (`_tally_reason_codes`):** `voucher_reason_codes` is `' | '`-joined; multi-line vouchers prefix each entry with `[Account Code] ` and vendor-capped vouchers append a `NOTE FOR AUDITOR` fragment. The parser drops that fragment, strips the account-code prefix, then maps free text to a canonical label via the ordered `_REASON_TYPES` substring table — necessary because several reasons embed variable numbers. **`_REASON_TYPES` mirrors `sample_selector._build_reason()` — if a reason string is reworded there, update the substring here or its bar silently falls into "Other".**
+
+**Benford interpretation text is shared wording** with the Excel Benford tab's Key Takeaway (`excel_exporter._sheet_benford`). `_benford_interpretation()` reproduces the same three branches (not-significant / high-MAD-significant / low-MAD-significant) — reword both together.
 
 ## Typography
 
