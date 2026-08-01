@@ -241,6 +241,9 @@ def _rollup_vouchers(df):
             'Voucher ID':                    str(voucher_id),
             'Vendor ID':                     top_line.get('Vendor ID', ''),
             'Vendor Name':                   top_line.get('Vendor Name', ''),
+            # Display/reference only — representative value from the highest-scoring
+            # line. Never used in any scoring computation.
+            'Account Description':           top_line.get('Account Description', ''),
             'Invoice Number(s)':             ', '.join(inv_nums),
             'Invoice Date(s)':               ' | '.join(inv_dates),
             'Voucher Line Description(s)':   ' | '.join(line_descs),
